@@ -132,7 +132,7 @@ func openPTY(t *testing.T) (*os.File, *os.File) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { slave.Close() })
-	if err = unix.IoctlSetWinsize(fd, unix.TIOCSWINSZ, &unix.Winsize{Row: 32, Col: 100}); err != nil {
+	if err = unix.IoctlSetWinsize(fd, unix.TIOCSWINSZ, &unix.Winsize{Row: 36, Col: 100}); err != nil {
 		t.Fatal(err)
 	}
 	return master, slave

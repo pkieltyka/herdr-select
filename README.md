@@ -15,7 +15,7 @@
 
 A keyboard-driven session picker for [Herdr](https://github.com/herdrdev/herdr), built with Go and the Charm v2 libraries. Open a session, start a new one, or stop and delete an old one—all from a simple centered menu.
 
-The selector runs in an interactive Linux terminal and hands that terminal to Herdr. After Herdr exits or detaches, the selector exits too. Detach from any existing Herdr pane before launching it.
+The selector requires an interactive Linux terminal of at least **80 columns × 36 rows** and hands that terminal to Herdr. Smaller windows show a resize message and preserve your selection and typed name until enlarged. Esc or Ctrl+C quits when no operation is pending. After Herdr exits or detaches, the selector exits too. Detach from any existing Herdr pane before launching it.
 
 <!-- Add the finished application's screenshot here once docs/screenshot.png exists:
 <p align="center">
@@ -33,7 +33,7 @@ Herdr Select calls your installed `herdr` CLI. Herdr manages the actual sessions
 - **See the actions that apply.** The centered footer changes with your selection: Open and Stop for a running session, Resume for a stopped one, and Delete where supported.
 - **Confirm before stopping or deleting.** Deleting a running session stops it first, after confirmation. Herdr's default session cannot be deleted.
 
-If Herdr cannot determine a session's state, its row shows **Unavailable** with a diagnostic; stop/delete stay disabled until a successful refresh. Failed refreshes keep the last list visible as stale.
+If Herdr cannot determine a session's state, its row shows **Unavailable** with a diagnostic; stop/delete stay disabled until a successful refresh. Failed refreshes keep the last list visible as stale. Yellow action notices disappear after three seconds; red errors remain until resolved, dismissed, or replaced by a later action result.
 
 The age comes from the modification time of each session's `session.json`. It indicates saved-state recency, not every keystroke or agent action. Missing timestamps display `—` and sort last. Ages stay fixed until the list is loaded again: press `r` to refresh, or complete a session operation that reloads the list.
 

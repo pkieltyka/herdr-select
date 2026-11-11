@@ -14,6 +14,11 @@ import (
 //go:embed ram.txt
 var ram string
 
+const (
+	minimumWidth  = 80
+	minimumHeight = 36
+)
+
 type layout struct {
 	panelWidth, bodyWidth, available, capacity int
 	logo                                       []string
@@ -86,55 +91,12 @@ func (m *Model) layout() layout {
 		reserve = min(m.formFooterHeight, max(0, m.height-15))
 	}
 	l.available = max(0, m.height-reserve)
-	// Compact decoration takes precedence over reducing the usable list or form.
-	wanted := 3
-	switch m.view {
-	case picker:
-		wanted = min(len(m.sessions)+1, 8) + 2
-		if m.pickerNotice() != "" {
-			wanted += 3
-		}
-		if len(m.sessions)+1 > 8 {
-			wanted++
-		}
-	case newSession:
-		wanted = m.formHeight(l.bodyWidth) + 2
-	case confirm:
-		wanted = min(12, len(m.confirmLines(l.bodyWidth))+5)
-	default:
-		wanted = min(10, len(wrap(m.notice, l.bodyWidth))+4)
-	}
-	l.logo = []string{"herdr"}
-	full := strings.Split(strings.TrimRight(ram, "\n"), "\n")
-	if !m.compact && ansi.StringWidth(longest(full)) <= m.width-4 && l.available >= len(full)+2+wanted+2 {
-		l.logo = full
+	l.logo = strings.Split(strings.TrimRight(ram, "\n"), "\n")
+	if m.compact {
+		l.logo = []string{"herdr"}
 	}
 	l.capacity = max(0, l.available-len(l.logo)-2-2)
-	minBody := 1
-	switch m.view {
-	case picker:
-		if len(m.sessions) > 0 {
-			minBody++
-		} // A scrolling list also needs its position indicator.
-		if m.pickerNotice() != "" {
-			minBody++
-		}
-	case newSession:
-		minBody = m.formHeight(l.bodyWidth)
-	case confirm:
-		minBody = 4
-	case startupError, discoveryError:
-		minBody = 3
-	}
-	l.small = m.width < 32 || l.capacity < minBody
-	if m.view == picker {
-		for _, session := range m.sessions {
-			status, age := m.metadata(session)
-			if l.bodyWidth < ansi.StringWidth(status)+ansi.StringWidth(age)+5 {
-				l.small = true
-			}
-		}
-	}
+	l.small = m.tooSmall()
 	return l
 }
 func longest(lines []string) string {
@@ -146,7 +108,27 @@ func longest(lines []string) string {
 	}
 	return s
 }
-func (m *Model) tooSmall() bool { return m.layout().small }
+func (m *Model) tooSmall() bool {
+	return m.width < minimumWidth || m.height < minimumHeight
+}
+
+func (m *Model) resizeMessage() []string {
+	current := fmt.Sprintf("Current: %d × %d", m.width, m.height)
+	minimum := fmt.Sprintf("Minimum: %d × %d", minimumWidth, minimumHeight)
+	dimensions := fmt.Sprintf("%d×%d → %d×%d", m.width, m.height, minimumWidth, minimumHeight)
+	candidates := [][]string{
+		{"Terminal too small", "", current, minimum, "", "Resize to continue"},
+		{"Terminal too small", current, minimum, "Resize to continue"},
+		{"Resize to continue", dimensions},
+		{"Resize " + dimensions},
+	}
+	for _, lines := range candidates {
+		if len(lines) <= m.height && ansi.StringWidth(longest(lines)) <= m.width {
+			return lines
+		}
+	}
+	return []string{ansi.Truncate("Resize "+dimensions, m.width, "…")}
+}
 func (m *Model) pickerNotice() string {
 	n := m.notice
 	if s, ok := m.current(); ok && s.ConnectionError != "" {
@@ -180,6 +162,9 @@ func (m *Model) listCapacity(l layout) int {
 	return rows
 }
 func (m *Model) ensureVisible() {
+	if m.tooSmall() {
+		return
+	}
 	cap := m.listCapacity(m.layout())
 	m.scroll = min(m.scroll, max(0, len(m.sessions)+1-cap))
 	if m.selected < m.scroll {
@@ -200,12 +185,16 @@ func (m *Model) View() tea.View {
 	}
 	var screen []string
 	if l.small {
-		message := wrap("Resize terminal or quit [q / ctrl+c].", m.width)
+		message := m.resizeMessage()
 		for range max(0, (m.height-len(message))/2) {
 			screen = append(screen, base.Render(strings.Repeat(" ", m.width)))
 		}
-		for _, line := range message {
-			screen = append(screen, centered(line, m.width, base))
+		for i, line := range message {
+			style := base
+			if i == 0 {
+				style = style.Foreground(cyan).Bold(true)
+			}
+			screen = append(screen, centered(line, m.width, style))
 		}
 	} else {
 		var body []string
@@ -227,7 +216,9 @@ func (m *Model) View() tea.View {
 				title = "Herdr Select"
 			}
 			body = []string{textStyle.Bold(true).Render(title), ""}
-			body = append(body, m.scrolled(wrap(m.notice, l.bodyWidth), max(1, l.capacity-2), l.bodyWidth)...)
+			for _, line := range m.scrolled(wrap(m.notice, l.bodyWidth), max(1, l.capacity-2), l.bodyWidth) {
+				body = append(body, errorStyle.Render(line))
+			}
 		}
 		groupHeight := len(l.logo) + 2 + len(body) + 2
 		top := max(0, (l.available-groupHeight)/2)
@@ -332,11 +323,20 @@ func (m *Model) pickerBody(l layout) []string {
 			lines = append(lines, "")
 		}
 		for _, line := range m.scrolled(wrap(notice, l.bodyWidth), diagnostics, l.bodyWidth) {
-			lines = append(lines, warningStyle.Render(line))
+			lines = append(lines, m.noticeStyle().Render(line))
 		}
 	}
 
 	return lines
+}
+func (m *Model) noticeStyle() lipgloss.Style {
+	if m.noticeSeverity == noticeError {
+		return errorStyle
+	}
+	if s, ok := m.current(); m.view == picker && ok && s.ConnectionError != "" {
+		return errorStyle
+	}
+	return warningStyle
 }
 func (m *Model) metadata(s herdr.Session) (string, string) {
 	status := "Stopped"
@@ -382,8 +382,12 @@ func (m *Model) formBody(l layout) []string {
 	for len(visibleErrors) < diagnosticCapacity {
 		visibleErrors = append(visibleErrors, "")
 	}
+	diagnosticStyle := errorStyle
+	if m.busy != "" {
+		diagnosticStyle = mutedStyle
+	}
 	for _, line := range visibleErrors {
-		lines = append(lines, warningStyle.Render(line))
+		lines = append(lines, diagnosticStyle.Render(line))
 	}
 	lines = append(lines, centered(m.button("OK", m.focus == 1, m.validForm() && m.busy == "")+"   "+m.button("Cancel", m.focus == 2, m.busy == ""), l.bodyWidth, textStyle))
 	return lines
@@ -421,7 +425,9 @@ func (m *Model) confirmLines(width int) []string {
 	lines = append(lines, wrap(consequence, width)...)
 	if m.notice != "" {
 		lines = append(lines, "")
-		lines = append(lines, wrap(m.notice, width)...)
+		for _, line := range wrap(m.notice, width) {
+			lines = append(lines, m.noticeStyle().Render(line))
+		}
 	}
 	return lines
 }

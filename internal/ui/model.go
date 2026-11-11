@@ -23,6 +23,17 @@ const (
 	discoveryError
 )
 
+type noticeSeverity int
+
+const (
+	noticeWarning noticeSeverity = iota
+	noticeError
+)
+
+const noticeDuration = 3 * time.Second
+
+type noticeExpired struct{ id uint64 }
+
 type LaunchRequest struct {
 	Name   string
 	Create bool
@@ -43,6 +54,8 @@ type Model struct {
 	operationID                     uint64
 	loaded, stale                   bool
 	notice                          string
+	noticeSeverity                  noticeSeverity
+	noticeID                        uint64
 	now                             time.Time
 	compact                         bool
 	formFooterHeight                int
@@ -67,7 +80,8 @@ func New(backend herdr.Backend, now time.Time, compact bool) *Model {
 
 func Warning(message string, now time.Time, compact bool) *Model {
 	m := New(nil, now, compact)
-	m.view, m.notice, m.ExitCode = startupError, message, 1
+	m.view, m.ExitCode = startupError, 1
+	m.setNotice(message, noticeError)
 	return m
 }
 
@@ -142,15 +156,32 @@ func (m *Model) LaunchFailed(err error) {
 		m.input.Focus()
 	} else {
 		m.view = picker
-		m.notice = "Could not start Herdr: " + err.Error()
+		m.setNotice("Could not start Herdr: "+err.Error(), noticeError)
 	}
 }
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
+		wasSmall := m.tooSmall()
 		m.width, m.height = msg.Width, msg.Height
-		m.input.SetWidth(max(1, m.panelWidth()-12))
+		if !m.tooSmall() {
+			m.input.SetWidth(max(1, m.panelWidth()-12))
+		}
 		m.ensureVisible()
+		if wasSmall && !m.tooSmall() && m.view == newSession && m.focus == 0 && m.busy == "" && m.input.Focused() {
+			// Hidden blink messages are discarded by the input guard, so restart
+			// the focused cursor's timer when the form becomes visible again.
+			return m, m.input.Focus()
+		}
+		return m, nil
+	case noticeExpired:
+		if msg.id == m.noticeID && m.noticeSeverity == noticeWarning {
+			m.setNotice("", noticeWarning)
+			if m.view == picker || m.view == confirm {
+				m.contentScroll = 0
+				m.ensureVisible()
+			}
+		}
 		return m, nil
 	case result:
 		if msg.id != m.operationID || m.busy == "" {
@@ -172,24 +203,31 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, m.input.Focus()
 			}
 		} else if msg.kind == refresh && msg.err != nil && !m.loaded {
-			m.view, m.notice, m.ExitCode = discoveryError, msg.err.Error(), 1
+			m.view, m.ExitCode = discoveryError, 1
+			m.setNotice(msg.err.Error(), noticeError)
 			return m, nil
 		} else {
 			m.view = picker
 		}
-		m.notice = msg.notice
+		notice := msg.notice
+		severity := noticeWarning
 		if msg.err != nil {
-			m.notice = msg.err.Error()
+			notice = msg.err.Error()
+			severity = noticeError
 		}
 		if msg.stoppedButNotDeleted {
-			m.notice = "Session stopped, but not deleted. " + m.notice
+			notice = "Session stopped, but not deleted. " + notice
+			severity = noticeError
 		}
 		if msg.refreshErr != nil {
-			m.notice += " Refresh failed: " + msg.refreshErr.Error()
+			notice += " Refresh failed: " + msg.refreshErr.Error()
+			severity = noticeError
 		}
 		if m.stale {
-			m.notice += " Session list is stale; refresh before continuing."
+			notice += " Session list is stale; refresh before continuing."
+			severity = noticeError
 		}
+		noticeCmd := m.setNotice(notice, severity)
 		m.contentScroll = 0
 		if msg.confirmation != nil {
 			m.confirmation = *msg.confirmation
@@ -201,21 +239,22 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 		}
 		m.ensureVisible()
-		return m, nil
+		return m, noticeCmd
 	}
 	if m.busy != "" {
+		return m, nil
+	}
+	if m.tooSmall() {
+		if key, ok := msg.(tea.KeyPressMsg); ok && (key.String() == "esc" || key.String() == "ctrl+c") {
+			return m, tea.Quit
+		}
+		// Guard all input, including paste, while the underlying view is hidden.
 		return m, nil
 	}
 	if key, ok := msg.(tea.KeyPressMsg); ok {
 		k := key.String()
 		if k == "ctrl+c" {
 			return m, tea.Quit
-		}
-		if m.tooSmall() {
-			if k == "q" || k == "esc" {
-				return m, tea.Quit
-			}
-			return m, nil
 		}
 		switch m.view {
 		case startupError:
@@ -283,14 +322,14 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			switch k {
 			case "esc":
 				m.view = picker
-				m.notice = ""
+				m.setNotice("", noticeWarning)
 				m.contentScroll = 0
 			case "left", "right", "tab", "shift+tab":
 				m.confirmAccept = !m.confirmAccept
 			case "enter":
 				if !m.confirmAccept {
 					m.view = picker
-					m.notice = ""
+					m.setNotice("", noticeWarning)
 					m.contentScroll = 0
 				} else {
 					return m, m.begin(mutate, m.confirmation.Name, m.confirmation)
@@ -356,6 +395,16 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 	return m, nil
 }
+func (m *Model) setNotice(message string, severity noticeSeverity) tea.Cmd {
+	m.noticeID++
+	m.notice, m.noticeSeverity = message, severity
+	if message == "" || severity == noticeError {
+		return nil
+	}
+	id := m.noticeID
+	return tea.Tick(noticeDuration, func(time.Time) tea.Msg { return noticeExpired{id: id} })
+}
+
 func (m *Model) validForm() bool { return herdr.ValidateNewName(m.input.Value(), m.sessions) == nil }
 func (m *Model) validationMessage() string {
 	if m.formError != "" {
@@ -374,7 +423,7 @@ func (m *Model) cancelForm() {
 	m.selected = 0
 	m.scroll = 0
 	m.input.Blur()
-	m.notice = ""
+	m.setNotice("", noticeWarning)
 	m.contentScroll = 0
 }
 func (m *Model) scrollContent(key string) {

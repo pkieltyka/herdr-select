@@ -18,6 +18,7 @@ var (
 	textStyle       = lipgloss.NewStyle().Foreground(foreground).Background(panelBackground)
 	mutedStyle      = textStyle.Foreground(muted)
 	selectedStyle   = lipgloss.NewStyle().Foreground(background).Background(cyan)
+	errorStyle      = textStyle.Foreground(lipgloss.Color("#e06c75"))
 	warningStyle    = textStyle.Foreground(lipgloss.Color("#d7af5f"))
 )
 

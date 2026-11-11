@@ -44,7 +44,7 @@ The corresponding SVG files are editable preview sources. [ram-logo.txt](assets/
 
 - Reserve the terminal's bottom row(s) for the action footer. Center the logo and menu together in the remaining area, with approximately two blank terminal rows between them.
 - Render the ram silhouette using repeated `herdr` letters for filled areas and Unicode braille characters for the outline and internal details. Preserve the horn and terminal-prompt cutout as far as character resolution permits. Use the provided 34-column, 16-row art as the starting point. Render text directly; no image protocol or runtime image-conversion dependency is needed.
-- Use light gray (`#bcbcbc`) for the ram. On smaller terminals or terminals without suitable glyphs, use compact plain `herdr`, with normal letter spacing and no extra gaps.
+- Use light gray (`#bcbcbc`) for the ram. Use compact plain `herdr` only for the locale/glyph fallback, with normal letter spacing and no extra gaps; terminal size does not trigger this fallback.
 - Use a near-black full-screen background (`#0b0b0b`) and a charcoal menu panel (`#171717`) with no visible outline. Target about 76 columns on a spacious terminal; shrink to fit with outer margins. Provide roughly three cells of horizontal content padding and one cell around the highlight bar.
 - Use light row text (`#dddddd`) and muted metadata (`#999999`). The selection bar is teal/cyan (`#4b9eab`) with near-black text (`#0b0b0b`), including the selected row's status and age, and a bold session label. These colors are proposed design values inspired by the references.
 - Keep the logo grayscale so selection remains the main colored element. Adapt to limited-color terminals with a clearly distinguishable selected row.
@@ -91,11 +91,25 @@ The bottom footer shows `Confirm [enter]` while the confirmation choices have fo
 - Show Loading sessions, Stopping, or Deleting in the same visual frame. While a picker action runs, show its busy state in the footer and disable repeated submissions. New Session submission instead shows progress in its panel and keeps the footer hidden.
 - Missing-Herdr and nested-launch warnings use a clear message in the panel and `Quit [q]` in the footer.
 - Discovery failure shows the error and Retry/Quit actions. Recoverable action failures and success messages appear below the list inside the panel, without obscuring selection. Wrap or scroll long diagnostics.
+- Completed-action notices and non-error warnings use amber (`#d7af5f`) and disappear after approximately three seconds. Errors use red (`#e06c75`) and persist until resolved, dismissed, or superseded, including form validation, unavailable sessions, partial completion, and stale/uncertain operation failures. A notice expiry must never clear newer content. The timer continues through resizing and busy states without restarting on redraw, independently of the static relative ages. Confirmation headings and consequences remain until the confirmation is resolved.
 - Replace panel contents between states rather than stacking dimmed copies of the picker behind modal layers.
 
 ## Small terminals
 
-Shrink outer margins first, then replace the ram with compact `herdr`. Wrap the bottom action footer across additional rows when needed, center each wrapped row, and reserve those rows before laying out the menu. Preserve status and age labels while truncating long session names. If even one session row with metadata and the necessary actions cannot fit, display a resize-or-quit message. Resizing preserves selection, entered text, scroll position where possible, and confirmation state.
+The fixed minimum is **80 columns × 36 rows**, across all views. Below either dimension, replace the entire UI (including logo, panel, and footer) with this centered block on the normal near-black background; style the title bold cyan and the dimensions/instruction in light text:
+
+```text
+Terminal too small
+
+Current: 68 × 28
+Minimum: 80 × 36
+
+Resize to continue
+```
+
+Always use the actual current dimensions. Remove blank rows and shorten the message as needed; clip gracefully down to a single cell, and render nothing at zero width or height. Esc or Ctrl+C exits when idle. Ignore all other input, including paste, to prevent hidden edits or actions; pending-operation protection remains in effect and asynchronous results/notice expiry continue to process.
+
+Enlarging restores the active view automatically, with selection, input/cursor/focus, confirmation, and scroll state retained where possible. At 80 × 36 or larger, retain the full ram and scroll long lists or diagnostics inside the panel. The locale fallback remains available. Keep the footer full-width and contextual, hidden in the form. This approved fixed minimum replaces the earlier adaptive compact-logo layout.
 
 ## Review state
 
