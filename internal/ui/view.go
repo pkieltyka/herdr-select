@@ -286,7 +286,8 @@ func (m *Model) styledFooter(line string) string {
 			styled = append(styled, badgeStyle.Render(" "+badge+" "))
 		}
 	}
-	return centered(strings.Join(styled, " "), m.width, lipgloss.NewStyle().Background(panelBackground))
+	content := centered(strings.Join(styled, " "), m.width, lipgloss.NewStyle())
+	return surface(content, lipgloss.NewStyle().Background(panelBackground))
 }
 func (m *Model) pickerBody(l layout) []string {
 	capacity, diagnostics, separator := m.pickerSpace(l)

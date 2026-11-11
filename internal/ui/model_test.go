@@ -4,12 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"image/color"
 	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/pkieltyka/herdr-select/internal/herdr"
 )
@@ -423,6 +425,43 @@ func TestFooterCenterAndHiddenForm(t *testing.T) {
 	m.input.SetValue("bad name")
 	if strings.Contains(plain(m), "Refresh") || strings.Contains(plain(m), "New [enter]") {
 		t.Fatal("form footer")
+	}
+}
+func TestFooterBackgroundSpansTerminal(t *testing.T) {
+	m, _ := ready(session("work", true))
+	m.selected = 1
+	actions := []string{"Open [enter]", "Stop [shift+s]", "Delete [shift+d]", "Refresh [r]"}
+	strip := color.RGBA{R: 0x17, G: 0x17, B: 0x17, A: 0xff}
+	badge := color.RGBA{R: 0x29, G: 0x29, B: 0x33, A: 0xff}
+	for _, width := range []int{40, 60, 100, 160} {
+		t.Run(fmt.Sprint(width), func(t *testing.T) {
+			m.Update(tea.WindowSizeMsg{Width: width, Height: 40})
+			lines := strings.Split(m.View().Content, "\n")
+			for _, line := range lines[len(lines)-len(m.layout().footer):] {
+				plain := ansi.Strip(line)
+				cells := uv.NewStyledString(line).Lines(ansi.GraphemeWidth)[0]
+				if len(cells) != width {
+					t.Fatalf("footer width %d, want %d", len(cells), width)
+				}
+				want := make([]color.RGBA, width)
+				for x := range want {
+					want[x] = strip
+				}
+				for _, action := range actions {
+					label := " " + action + " "
+					if start := strings.Index(plain, label); start >= 0 {
+						for x := start; x < start+len(label); x++ {
+							want[x] = badge
+						}
+					}
+				}
+				for x, cell := range cells {
+					if cell.Style.Bg == nil || color.RGBAModel.Convert(cell.Style.Bg) != want[x] {
+						t.Errorf("footer column %d (%q): background %v, want %v", x, cell.Content, cell.Style.Bg, want[x])
+					}
+				}
+			}
+		})
 	}
 }
 func abs(n int) int {
