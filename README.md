@@ -111,7 +111,9 @@ From a clean checkout on a branch, run:
 scripts/release 0.1.0
 ```
 
-The command accepts `MAJOR.MINOR.PATCH` without a `v` prefix or leading zeroes. It writes `VERSION`, creates a release commit containing only that file, and creates the matching annotated `v0.1.0` tag. If `VERSION` already matches, it creates an empty release commit. Staged, unstaged, and untracked changes must be committed or removed first; existing tags are never moved. Nothing is pushed automatically.
+The command accepts `MAJOR.MINOR.PATCH` with an optional lowercase `v` prefix and no leading zeroes: `scripts/release v0.1.0` works too. Repeated prefixes such as `vv0.1.0` are invalid. After checking the checkout, it asks `Are you sure you want to release v0.1.0? [Y/n]`. Press Enter or type `y`/`yes` to confirm (case insensitive); `n`/`no` cancels without changes. Other answers prompt again; end of input cancels, so EOF is not treated as Enter.
+
+After confirmation, it writes the bare version to `VERSION`, creates a release commit containing only that file, and creates the matching annotated `v0.1.0` tag with exactly one `v`. If `VERSION` already matches, it creates an empty release commit. Staged, unstaged, and untracked changes must be committed or removed first; existing tags are never moved. Nothing is pushed automatically.
 
 Use this command for subsequent releases, for example `scripts/release 0.2.0`. Nix reads `VERSION` in pure evaluation; manually creating a Git tag does not change the reported release version. No version edits in `flake.nix` are needed. Review the release commit and tag before pushing them. If committing or tagging fails, inspect `git status`, `HEAD`, and the tag before retrying; the command leaves any partial work available for inspection.
 

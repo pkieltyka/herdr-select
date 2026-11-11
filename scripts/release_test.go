@@ -57,9 +57,16 @@ func (r *releaseRepo) git(args ...string) string {
 	return strings.TrimSpace(string(out))
 }
 
-func (r *releaseRepo) release(args ...string) (string, error) {
+func (r *releaseRepo) snapshot() string {
+	r.t.Helper()
+	return r.git("rev-parse", "HEAD") + r.git("show-ref", "--tags", "--heads") +
+		r.git("status", "--porcelain") + r.git("diff") + r.git("diff", "--cached")
+}
+
+func (r *releaseRepo) release(input string, args ...string) (string, error) {
 	cmd := exec.Command("bash", append([]string{r.script}, args...)...)
 	cmd.Dir, cmd.Env = r.dir, r.env
+	cmd.Stdin = strings.NewReader(input)
 	out, err := cmd.CombinedOutput()
 	return string(out), err
 }
@@ -82,12 +89,31 @@ func TestReleaseRepoIgnoresInheritedGitEnvironment(t *testing.T) {
 }
 
 func TestRelease(t *testing.T) {
-	for _, version := range []string{"0.1.0", "1.2.3"} {
-		t.Run(version, func(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		version string
+		input   string
+		prompts int
+	}{
+		{"bare default", "0.1.0", "\n", 1},
+		{"prefixed default", "v0.1.0", "\n", 1},
+		{"bare yes", "1.2.3", "y\n", 1},
+		{"prefixed yes", "v1.2.3", "yes\n", 1},
+		{"uppercase yes", "1.2.3", "Y\n", 1},
+		{"mixed case yes", "v1.2.3", "YeS\n", 1},
+		{"invalid then default", "1.2.3", "maybe\n\n", 2},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
 			r := newReleaseRepo(t)
 			before := r.git("rev-parse", "HEAD")
-			if out, err := r.release(version); err != nil {
+			version := strings.TrimPrefix(tc.version, "v")
+			out, err := r.release(tc.input, tc.version)
+			if err != nil {
 				t.Fatalf("release: %v\n%s", err, out)
+			}
+			prompt := "Are you sure you want to release v" + version + "? [Y/n] "
+			if got := strings.Count(out, prompt); got != tc.prompts {
+				t.Fatalf("prompt count = %d, want %d: %s", got, tc.prompts, out)
 			}
 			head := r.git("rev-parse", "HEAD")
 			if head == before || r.git("rev-parse", "v"+version+"^{commit}") != head {
@@ -96,8 +122,39 @@ func TestRelease(t *testing.T) {
 			if got := r.git("show", "v"+version+":VERSION"); got != version {
 				t.Fatalf("tagged VERSION = %q", got)
 			}
+			if r.git("tag", "--list") != "v"+version || r.git("cat-file", "-t", "v"+version) != "tag" {
+				t.Fatal("release must create exactly one annotated tag with a single v prefix")
+			}
 			if r.git("status", "--porcelain") != "" || r.git("show", "HEAD:other") != "original" {
 				t.Fatal("release left changes or modified unrelated content")
+			}
+		})
+	}
+}
+
+func TestReleaseCancellationPreservesRepository(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		input string
+	}{
+		{"no", "n\n"},
+		{"uppercase no", "N\n"},
+		{"word no", "no\n"},
+		{"mixed case no", "No\n"},
+		{"EOF", ""},
+		{"unterminated yes", "y"},
+		{"invalid then EOF", "maybe\n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r := newReleaseRepo(t)
+			before := r.snapshot()
+			out, err := r.release(tc.input, "v1.2.3")
+			if err == nil || !strings.Contains(out, "release cancelled") ||
+				!strings.Contains(out, "Are you sure you want to release v1.2.3? [Y/n]") {
+				t.Fatalf("release = %q, %v", out, err)
+			}
+			if r.snapshot() != before {
+				t.Fatal("cancelled release changed repository")
 			}
 		})
 	}
@@ -112,12 +169,13 @@ func TestReleaseRefusalsPreserveRepository(t *testing.T) {
 		{"missing version", nil, nil},
 		{"extra argument", []string{"1.2.3", "extra"}, nil},
 		{"existing tag", []string{"1.2.3"}, func(r *releaseRepo) { r.git("tag", "v1.2.3") }},
+		{"existing prefixed tag", []string{"v1.2.3"}, func(r *releaseRepo) { r.git("tag", "v1.2.3") }},
 		{"unstaged", []string{"1.2.3"}, func(r *releaseRepo) { r.write("other", "changed") }},
 		{"staged", []string{"1.2.3"}, func(r *releaseRepo) { r.write("other", "changed"); r.git("add", "other") }},
 		{"untracked", []string{"1.2.3"}, func(r *releaseRepo) { r.write("untracked", "keep") }},
 		{"detached", []string{"1.2.3"}, func(r *releaseRepo) { r.git("checkout", "--detach") }},
 	}
-	for _, version := range []string{"v1.2.3", "01.2.3", "1.02.3", "1.2.03", "1.2", "1.2.3-rc.1", "1.2.3+abc", "-1.2.3", "1.2.3\n", ""} {
+	for _, version := range []string{"vv1.2.3", "V1.2.3", "v", "v01.2.3", "01.2.3", "1.02.3", "1.2.03", "1.2", "1.2.3-rc.1", "1.2.3+abc", "-1.2.3", "1.2.3\n", ""} {
 		cases = append(cases, struct {
 			name    string
 			args    []string
@@ -130,15 +188,15 @@ func TestReleaseRefusalsPreserveRepository(t *testing.T) {
 			if tc.prepare != nil {
 				tc.prepare(r)
 			}
-			snapshot := func() string {
-				return r.git("rev-parse", "HEAD") + r.git("show-ref", "--tags", "--heads") +
-					r.git("status", "--porcelain") + r.git("diff") + r.git("diff", "--cached")
-			}
-			before := snapshot()
-			if out, err := r.release(tc.args...); err == nil {
+			before := r.snapshot()
+			out, err := r.release("y\n", tc.args...)
+			if err == nil {
 				t.Fatalf("release unexpectedly succeeded: %s", out)
 			}
-			if snapshot() != before {
+			if strings.Contains(out, "Are you sure") {
+				t.Fatalf("release prompted before rejecting invalid input or checkout: %s", out)
+			}
+			if r.snapshot() != before {
 				t.Fatal("refused release changed repository")
 			}
 		})
@@ -152,7 +210,7 @@ func TestFailedCommitDoesNotCreateTag(t *testing.T) {
 	if err := os.WriteFile(hook, []byte("#!/bin/sh\nexit 1\n"), 0755); err != nil {
 		t.Fatal(err)
 	}
-	if out, err := r.release("1.2.3"); err == nil || !strings.Contains(out, "commit failed") {
+	if out, err := r.release("y\n", "1.2.3"); err == nil || !strings.Contains(out, "commit failed") {
 		t.Fatalf("release = %q, %v", out, err)
 	}
 	if r.git("rev-parse", "HEAD") != before || r.git("tag", "--list") != "" {

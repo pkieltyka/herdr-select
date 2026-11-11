@@ -3,10 +3,10 @@ set -euo pipefail
 
 fail() { printf 'release: %s\n' "$*" >&2; exit 1; }
 
-[[ $# == 1 ]] || fail 'usage: scripts/release MAJOR.MINOR.PATCH'
-version=$1
+[[ $# == 1 ]] || fail 'usage: scripts/release [v]MAJOR.MINOR.PATCH'
+version=${1#v}
 [[ $version =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] ||
-  fail 'version must be MAJOR.MINOR.PATCH, without v or leading zeroes'
+  fail 'version must be MAJOR.MINOR.PATCH, with an optional lowercase v and no leading zeroes'
 tag="v$version"
 
 cd "$(git rev-parse --show-toplevel)"
@@ -18,6 +18,16 @@ git ls-files --error-unmatch VERSION >/dev/null || fail 'VERSION must be tracked
 if git show-ref --verify --quiet "refs/tags/$tag"; then
   fail "tag $tag already exists"
 fi
+
+while true; do
+  printf 'Are you sure you want to release %s? [Y/n] ' "$tag"
+  IFS= read -r answer || fail 'release cancelled: no confirmation received'
+  case "$answer" in
+    ''|[yY]|[yY][eE][sS]) break ;;
+    [nN]|[nN][oO]) fail 'release cancelled' ;;
+    *) printf 'Please answer y or n.\n' ;;
+  esac
+done
 
 printf '%s\n' "$version" > VERSION
 # --only excludes unrelated index entries, even if something stages them after preflight.
