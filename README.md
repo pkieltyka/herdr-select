@@ -17,11 +17,9 @@ A keyboard-driven session picker for [Herdr](https://github.com/herdrdev/herdr),
 
 The selector requires an interactive Linux terminal of at least **80 columns × 36 rows** and hands that terminal to Herdr. Smaller windows show a resize message and preserve your selection and typed name until enlarged. Esc or Ctrl+C quits when no operation is pending. After Herdr exits or detaches, the selector exits too. Detach from any existing Herdr pane before launching it.
 
-<!-- Add the finished application's screenshot here once docs/screenshot.png exists:
 <p align="center">
   <img src="docs/screenshot.png" alt="Herdr Select session picker">
 </p>
--->
 
 ## How it works
 
