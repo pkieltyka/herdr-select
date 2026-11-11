@@ -247,9 +247,12 @@ func (c *Client) mutate(ctx context.Context, operation, name string, timeout tim
 		return err
 	}
 	var response struct {
-		Stopped *bool   `json:"stopped"`
-		Deleted *bool   `json:"deleted"`
-		Session *string `json:"session"`
+		Stopped *bool `json:"stopped"`
+		Deleted *bool `json:"deleted"`
+		// Herdr 0.9.5 returns a SessionInfo object, not a session-name string.
+		Session *struct {
+			Name *string `json:"name"`
+		} `json:"session"`
 	}
 	if err := decodeOne(data, &response); err != nil {
 		return invalidResponse(operation, true, err)
@@ -258,7 +261,7 @@ func (c *Client) mutate(ctx context.Context, operation, name string, timeout tim
 	if operation == "delete" {
 		ack = response.Deleted
 	}
-	if ack == nil || !*ack || response.Session == nil || *response.Session != name {
+	if ack == nil || !*ack || response.Session == nil || response.Session.Name == nil || *response.Session.Name != name {
 		return invalidResponse(operation, true, fmt.Errorf("missing or mismatched %s acknowledgement", operation))
 	}
 	return nil

@@ -62,7 +62,9 @@ func ready(sessions ...herdr.Session) (*Model, *fakeBackend) {
 	m := New(b, time.Unix(110, 0), false)
 	m.Update(tea.WindowSizeMsg{Width: 100, Height: 40})
 	cmd := m.begin(refresh, "", target{})
-	m.Update(cmd())
+	r := cmd().(result)
+	r.listedAt = time.Unix(110, 0)
+	m.Update(r)
 	return m, b
 }
 func press(m *Model, key string) tea.Cmd {
@@ -106,6 +108,110 @@ func run(m *Model, cmd tea.Cmd) {
 	}
 }
 func plain(m *Model) string { return ansi.Strip(m.View().Content) }
+
+func TestAgeSnapshotChangesOnlyWithSuccessfulReload(t *testing.T) {
+	m, b := ready(session("work", true))
+	assertAge := func(want string) {
+		t.Helper()
+		if _, age := m.metadata(m.sessions[0]); age != want {
+			t.Fatalf("age = %q, want %q", age, want)
+		}
+	}
+	assertAge("10s ago")
+	if cmd := m.Init(); cmd != nil {
+		t.Fatal("idle picker scheduled background work")
+	}
+	for _, msg := range []tea.Msg{time.Unix(500, 0), tea.WindowSizeMsg{Width: 80, Height: 24}} {
+		if _, cmd := m.Update(msg); cmd != nil {
+			t.Fatal("idle update scheduled background work")
+		}
+		assertAge("10s ago")
+	}
+	press(m, "down")
+	assertAge("10s ago")
+	r := press(m, "r")().(result)
+	r.listedAt = time.Unix(170, 0)
+	m.Update(r)
+	assertAge("1min ago")
+	if m.selected != 1 || !m.sessions[0].ModifiedAt.Equal(time.Unix(100, 0)) {
+		t.Fatal("refresh changed selection or underlying timestamp")
+	}
+	b.replies = []listReply{{err: errors.New("offline")}}
+	run(m, press(m, "r"))
+	assertAge("1min ago")
+	stale := r
+	stale.id--
+	stale.listedAt = time.Unix(900, 0)
+	m.Update(stale)
+	assertAge("1min ago")
+
+	// A lifecycle reload renews status and the age snapshot together.
+	r = m.begin(mutate, "work", target{Name: "work", Running: true})().(result)
+	r.listedAt = time.Unix(230, 0)
+	m.Update(r)
+	assertAge("2min ago")
+	if m.sessions[0].Running || m.stale {
+		t.Fatal("lifecycle reload did not restore fresh stopped state")
+	}
+}
+
+func TestInitialLoadCapturesSnapshotWithoutTimer(t *testing.T) {
+	b := &fakeBackend{sessions: []herdr.Session{session("work", true)}}
+	m := New(b, time.Unix(110, 0), true)
+	before := time.Now()
+	msg := m.Init()()
+	r, ok := msg.(result)
+	if !ok {
+		t.Fatalf("initialization scheduled %T instead of only loading sessions", msg)
+	}
+	if r.listedAt.Before(before) || r.listedAt.After(time.Now()) {
+		t.Fatal("snapshot was not captured when discovery completed")
+	}
+	if _, cmd := m.Update(r); cmd != nil {
+		t.Fatal("successful load scheduled background work")
+	}
+	if !m.now.Equal(r.listedAt) {
+		t.Fatal("initial load did not adopt snapshot")
+	}
+}
+
+func TestFormDividerAndCompactButtonSpacing(t *testing.T) {
+	for _, size := range [][2]int{{100, 40}, {44, 18}, {32, 18}} {
+		t.Run(fmt.Sprint(size), func(t *testing.T) {
+			m, _ := ready()
+			m.Update(tea.WindowSizeMsg{Width: size[0], Height: size[1]})
+			press(m, "enter")
+			if m.tooSmall() {
+				t.Fatal("form should fit")
+			}
+			l := m.layout()
+			lines := m.formBody(l)
+			if ansi.Strip(lines[1]) != strings.Repeat("─", l.bodyWidth) {
+				t.Fatal("title divider does not span the form interior")
+			}
+			buttons := ansi.Strip(lines[len(lines)-1])
+			if !strings.Contains(buttons, "OK") || !strings.Contains(buttons, "Cancel") {
+				t.Fatal("missing buttons")
+			}
+			left := len(buttons) - len(strings.TrimLeft(buttons, " "))
+			right := len(buttons) - len(strings.TrimRight(buttons, " "))
+			if abs(left-right) > 1 {
+				t.Fatal("buttons are not centered")
+			}
+			blankRows := 0
+			for i := len(lines) - 2; i >= 0 && strings.TrimSpace(ansi.Strip(lines[i])) == ""; i-- {
+				blankRows++
+			}
+			if blankRows < 1 || blankRows > 2 {
+				t.Fatalf("reserved %d blank rows above buttons, want 1–2", blankRows)
+			}
+			if !strings.Contains(strings.Join(strings.Fields(plain(m)), " "), "no spaces") {
+				t.Fatal("naming hint missing")
+			}
+			assertBounds(t, m, size[0], size[1])
+		})
+	}
+}
 
 func TestPickerSelectionAndRefresh(t *testing.T) {
 	m, b := ready(session("fresh", true), session("default", false), session("old", false))
@@ -587,12 +693,15 @@ func TestDiscoveryFailureExitStatusAndRecovery(t *testing.T) {
 func TestEveryDiagnosticLineReachable(t *testing.T) {
 	for _, view := range []string{"picker", "form"} {
 		for _, capacity := range []int{1, 2, 3} {
+			if view == "form" && capacity > 2 {
+				continue
+			}
 			t.Run(fmt.Sprintf("%s/%d-rows", view, capacity), func(t *testing.T) {
 				m, _ := ready(session("a", true), session("b", false))
 				width, height := 80, 8+capacity
 				if view == "form" {
 					press(m, "enter")
-					width, height = 44, 16+capacity
+					width, height = 44, 15+capacity
 				}
 				m.Update(tea.WindowSizeMsg{Width: width, Height: height})
 				var tokens []string

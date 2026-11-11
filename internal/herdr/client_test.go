@@ -247,8 +247,13 @@ func TestClientMutations(t *testing.T) {
 				if op == "delete" {
 					ack = "deleted"
 				}
-				body := fmt.Sprintf(`{"%s":true,"session":%q,"future":123}`, ack, name)
-				c, capture := fixtureClient(t, fixture{Stdout: body})
+				// Herdr v0.9.5 cli.rs session_stop/session_delete serialize SessionInfo:
+				// https://github.com/herdrdev/herdr/blob/v0.9.5/src/cli.rs#L490-L524
+				body, marshalErr := json.Marshal(map[string]any{ack: true, "session": record(name, "/tmp/herdr-fixture/sessions/"+name), "future": 123})
+				if marshalErr != nil {
+					t.Fatal(marshalErr)
+				}
+				c, capture := fixtureClient(t, fixture{Stdout: string(body)})
 				var err error
 				if op == "stop" {
 					err = c.Stop(context.Background(), name)
@@ -270,38 +275,52 @@ func TestClientMutations(t *testing.T) {
 }
 
 func TestClientMutationFailures(t *testing.T) {
-	for _, tt := range []struct {
-		name string
-		f    fixture
-		code string
-	}{
-		{"missing_ack", fixture{Stdout: `{"session":"a"}`}, "invalid_response"},
-		{"null_ack", fixture{Stdout: `{"stopped":null,"session":"a"}`}, "invalid_response"},
-		{"false_ack", fixture{Stdout: `{"stopped":false,"session":"a"}`}, "invalid_response"},
-		{"wrong_target", fixture{Stdout: `{"stopped":true,"session":"b"}`}, "invalid_response"},
-		{"missing_target", fixture{Stdout: `{"stopped":true}`}, "invalid_response"},
-		{"null", fixture{Stdout: `null`}, "invalid_response"},
-		{"malformed", fixture{Stdout: `{`}, "invalid_response"},
-		{"wrong_type", fixture{Stdout: `{"stopped":"true","session":"a"}`}, "invalid_response"},
-		{"trailing", fixture{Stdout: `{"stopped":true,"session":"a"} true`}, "invalid_response"},
-		{"wrong_operation", fixture{Stdout: `{"deleted":true,"session":"a"}`}, "invalid_response"},
-		{"nonzero", fixture{Stdout: `{"stopped":true,"session":"a"}`, Stderr: "plain diagnostic", Exit: 2}, "process"},
-		{"structured_error", fixture{Stderr: `{"error":{"code":"denied","message":"Access denied"}}`, Exit: 1}, "denied"},
-		{"empty_diagnostic", fixture{Exit: 3}, "process"},
-	} {
-		t.Run(tt.name, func(t *testing.T) {
-			c, _ := fixtureClient(t, tt.f)
-			err := requireError(t, c.Stop(context.Background(), "a"), tt.code, true)
-			if tt.name == "nonzero" && err.Message != "plain diagnostic" {
-				t.Fatal(err)
-			}
-			if tt.name == "structured_error" && err.Message != "Access denied" {
-				t.Fatal(err)
-			}
-			if !strings.Contains(err.Error(), "may have changed") {
-				t.Fatal("missing uncertainty diagnostic")
-			}
-		})
+	for _, op := range []string{"stop", "delete"} {
+		for _, tt := range []struct {
+			name string
+			f    fixture
+			code string
+		}{
+			{"missing_ack", fixture{Stdout: `{"session":{"name":"a"}}`}, "invalid_response"},
+			{"null_ack", fixture{Stdout: `{"stopped":null,"session":{"name":"a"}}`}, "invalid_response"},
+			{"false_ack", fixture{Stdout: `{"stopped":false,"session":{"name":"a"}}`}, "invalid_response"},
+			{"wrong_target", fixture{Stdout: `{"stopped":true,"session":{"name":"b"}}`}, "invalid_response"},
+			{"missing_target", fixture{Stdout: `{"stopped":true}`}, "invalid_response"},
+			{"null_target", fixture{Stdout: `{"stopped":true,"session":null}`}, "invalid_response"},
+			{"string_target", fixture{Stdout: `{"stopped":true,"session":"a"}`}, "invalid_response"},
+			{"missing_name", fixture{Stdout: `{"stopped":true,"session":{}}`}, "invalid_response"},
+			{"null_name", fixture{Stdout: `{"stopped":true,"session":{"name":null}}`}, "invalid_response"},
+			{"wrong_name_type", fixture{Stdout: `{"stopped":true,"session":{"name":123}}`}, "invalid_response"},
+			{"null", fixture{Stdout: `null`}, "invalid_response"},
+			{"malformed", fixture{Stdout: `{`}, "invalid_response"},
+			{"wrong_type", fixture{Stdout: `{"stopped":"true","session":{"name":"a"}}`}, "invalid_response"},
+			{"trailing", fixture{Stdout: `{"stopped":true,"session":{"name":"a"}} true`}, "invalid_response"},
+			{"wrong_operation", fixture{Stdout: `{"deleted":true,"session":{"name":"a"}}`}, "invalid_response"},
+			{"nonzero", fixture{Stdout: `{"stopped":true,"session":{"name":"a"}}`, Stderr: "plain diagnostic", Exit: 2}, "process"},
+			{"structured_error", fixture{Stderr: `{"error":{"code":"denied","message":"Access denied"}}`, Exit: 1}, "denied"},
+			{"empty_diagnostic", fixture{Exit: 3}, "process"},
+		} {
+			t.Run(op+"/"+tt.name, func(t *testing.T) {
+				if op == "delete" {
+					tt.f.Stdout = strings.NewReplacer(`"stopped"`, `"deleted"`, `"deleted"`, `"stopped"`).Replace(tt.f.Stdout)
+				}
+				c, _ := fixtureClient(t, tt.f)
+				mutation := c.Stop
+				if op == "delete" {
+					mutation = c.Delete
+				}
+				err := requireError(t, mutation(context.Background(), "a"), tt.code, true)
+				if tt.name == "nonzero" && err.Message != "plain diagnostic" {
+					t.Fatal(err)
+				}
+				if tt.name == "structured_error" && err.Message != "Access denied" {
+					t.Fatal(err)
+				}
+				if !strings.Contains(err.Error(), "may have changed") {
+					t.Fatal("missing uncertainty diagnostic")
+				}
+			})
+		}
 	}
 	c, capture := fixtureClient(t, fixture{})
 	requireError(t, c.Delete(context.Background(), "default"), "default_session", false)
@@ -314,7 +333,7 @@ func TestClientMutationFailures(t *testing.T) {
 func TestClientBounds(t *testing.T) {
 	for _, mode := range []string{"stdout_overflow", "stderr_overflow", "timeout", "inherited_pipe"} {
 		t.Run(mode, func(t *testing.T) {
-			c, _ := fixtureClient(t, fixture{Mode: mode, Stdout: `{"stopped":true,"session":"a"}`})
+			c, _ := fixtureClient(t, fixture{Mode: mode, Stdout: `{"stopped":true,"session":{"name":"a"}}`})
 			code := "output_limit"
 			switch mode {
 			case "timeout":

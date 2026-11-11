@@ -355,7 +355,7 @@ func (m *Model) metadata(s herdr.Session) (string, string) {
 func (m *Model) formHeight(width int) int {
 	// One diagnostic row is essential; longer messages scroll within the space
 	// available at this terminal size and cannot make the input uneditable.
-	return 9 + len(wrap("1-64 characters, no spaces: A-Z a-z 0-9 . _ -", width))
+	return 8 + len(wrap("1-64 characters, no spaces: A-Z a-z 0-9 . _ -", width))
 }
 func (m *Model) formBody(l layout) []string {
 	border := muted
@@ -363,7 +363,8 @@ func (m *Model) formBody(l layout) []string {
 		border = cyan
 	}
 	field := lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(border).Background(lipgloss.Color("#202024")).Width(l.bodyWidth - 2).Render(surface(fit(m.input.View(), l.bodyWidth-4), textStyle.Background(lipgloss.Color("#202024"))))
-	lines := []string{textStyle.Bold(true).Render("New Session"), "", textStyle.Render("Session name")}
+	divider := textStyle.Foreground(lipgloss.Color("#444444")).Render(strings.Repeat("─", l.bodyWidth))
+	lines := []string{textStyle.Bold(true).Render("New Session"), divider, textStyle.Render("Session name")}
 	lines = append(lines, strings.Split(field, "\n")...)
 	for _, line := range wrap("1-64 characters, no spaces: A-Z a-z 0-9 . _ -", l.bodyWidth) {
 		lines = append(lines, mutedStyle.Render(line))
@@ -384,7 +385,7 @@ func (m *Model) formBody(l layout) []string {
 	for _, line := range visibleErrors {
 		lines = append(lines, warningStyle.Render(line))
 	}
-	lines = append(lines, "", centered(m.button("OK", m.focus == 1, m.validForm() && m.busy == "")+"   "+m.button("Cancel", m.focus == 2, m.busy == ""), l.bodyWidth, textStyle))
+	lines = append(lines, centered(m.button("OK", m.focus == 1, m.validForm() && m.busy == "")+"   "+m.button("Cancel", m.focus == 2, m.busy == ""), l.bodyWidth, textStyle))
 	return lines
 }
 func (m *Model) button(label string, focused, enabled bool) string {
@@ -439,7 +440,7 @@ func (m *Model) confirmButtons(width int) []string {
 	return []string{centered(cancel+"  "+accept, width, textStyle)}
 }
 func (m *Model) formDiagnosticCapacity(l layout) int {
-	return min(3, max(1, l.capacity-(m.formHeight(l.bodyWidth)-1)))
+	return min(2, max(1, l.capacity-(m.formHeight(l.bodyWidth)-1)))
 }
 
 func contentScrollMetrics(lineCount, capacity int) (visible, maximum int) {

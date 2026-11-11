@@ -27,8 +27,6 @@ type LaunchRequest struct {
 	Name   string
 	Create bool
 }
-type ageTick time.Time
-
 type Model struct {
 	backend                         herdr.Backend
 	view                            viewKind
@@ -75,14 +73,13 @@ func Warning(message string, now time.Time, compact bool) *Model {
 
 func (m *Model) Init() tea.Cmd {
 	if m.view == loading {
-		return tea.Batch(m.begin(refresh, "", target{}), tick())
+		return m.begin(refresh, "", target{})
 	}
 	if m.view == newSession && m.focus == 0 {
-		return tea.Batch(m.input.Focus(), tick())
+		return m.input.Focus()
 	}
-	return tick()
+	return nil
 }
-func tick() tea.Cmd { return tea.Tick(time.Second, func(t time.Time) tea.Msg { return ageTick(t) }) }
 func (m *Model) begin(kind action, name string, confirmed target) tea.Cmd {
 	m.operationID++
 	switch kind {
@@ -155,15 +152,14 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.input.SetWidth(max(1, m.panelWidth()-12))
 		m.ensureVisible()
 		return m, nil
-	case ageTick:
-		m.now = time.Time(msg)
-		return m, tick()
 	case result:
 		if msg.id != m.operationID || m.busy == "" {
 			return m, nil
 		}
 		m.busy = ""
 		if msg.listed {
+			// Approved UI feedback replaces ticking ages with a session-load snapshot.
+			m.now = msg.listedAt
 			m.replaceSessions(msg.sessions)
 		}
 		if msg.refreshErr != nil || !msg.listed && msg.kind != create {

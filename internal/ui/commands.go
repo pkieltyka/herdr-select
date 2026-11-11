@@ -3,6 +3,7 @@ package ui
 import (
 	"context"
 	"fmt"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/pkieltyka/herdr-select/internal/herdr"
@@ -28,6 +29,7 @@ type result struct {
 	kind                 action
 	sessions             []herdr.Session
 	listed               bool
+	listedAt             time.Time
 	err                  error
 	refreshErr           error
 	confirmation         *target
@@ -58,6 +60,7 @@ func operation(backend herdr.Backend, id uint64, kind action, name string, confi
 			return r
 		}
 		r.sessions, r.listed = sessions, true
+		r.listedAt = time.Now()
 		if kind == refresh {
 			return r
 		}
@@ -136,6 +139,9 @@ func operation(backend herdr.Backend, id uint64, kind action, name string, confi
 		// Every attempted mutation gets a fresh authoritative list, including uncertain failures.
 		r.sessions, r.refreshErr = backend.List(ctx)
 		r.listed = r.refreshErr == nil
+		if r.listed {
+			r.listedAt = time.Now()
+		}
 		return r
 	}
 }
