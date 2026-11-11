@@ -4,7 +4,7 @@
 
 <h1 align="center">Herdr Select</h1>
 
-<p align="center">Your sessions. One small terminal picker.</p>
+<p align="center">A tui selector for herdr sessions.</p>
 
 <p align="center">
   <a href="#how-it-works">How it works</a> ·
@@ -13,9 +13,14 @@
   <a href="LICENSE">MIT license</a>
 </p>
 
-A keyboard-driven session picker for [Herdr](https://github.com/herdrdev/herdr), built with Go and the Charm v2 libraries. Open a session, start a new one, or stop and delete an old one—all from a simple centered menu.
+I like to group my [Herdr](https://github.com/herdrdev/herdr) tabs/agents by project and herdr sessions are the best way to do that.
 
-The selector requires an interactive Linux terminal of at least **80 columns × 28 rows** and hands that terminal to Herdr. Vertical padding contracts automatically in shorter windows, keeping the full ram and controls visible. Smaller windows show a resize message and preserve your selection and typed name until enlarged. Esc or Ctrl+C quits when no operation is pending. After Herdr exits or detaches, the selector exits too. Detach from any existing Herdr pane before launching it.
+`herdr-select` is a simple utility program written in Go which interacts with your local `herdr` cli to easily see all your
+herdr sessions at once, create a new one or stop/delete them. 
+
+Specifically, I use this with nixy-os as a hotkey with super+shift+return to launch herdr by first starting herdr-select
+to show me which project setup I want to jump into (aka session), and go from there.
+
 
 ## How it works
 
@@ -36,7 +41,6 @@ The age comes from the modification time of each session's `session.json`. It in
 | Key | Action |
 | --- | --- |
 | ↑ / ↓ | Move through the list |
-| Home | Jump to New Session |
 | Enter | New, open, or resume the selected session |
 | Shift+S | Stop a running session, with confirmation |
 | Shift+D | Delete a named session, with confirmation |
@@ -96,20 +100,6 @@ nix flake check
 ```
 
 The design, architecture, and build phases live in [specs/projects/herdr-select](specs/projects/herdr-select/). Runtime artwork is plain terminal text; the README's [PNG](docs/logo.png) and [SVG](docs/logo.svg) are documentation assets.
-
-## Releases
-
-From a clean checkout on a branch, run:
-
-```sh
-scripts/release 0.1.0
-```
-
-The command accepts `MAJOR.MINOR.PATCH` with an optional lowercase `v` prefix and no leading zeroes: `scripts/release v0.1.0` works too. Repeated prefixes such as `vv0.1.0` are invalid. After checking the checkout, it asks `Are you sure you want to release v0.1.0? [Y/n]`. Press Enter or type `y`/`yes` to confirm (case insensitive); `n`/`no` cancels without changes. Other answers prompt again; end of input cancels, so EOF is not treated as Enter.
-
-After confirmation, it writes the bare version to `VERSION`, creates a release commit containing only that file, and creates the matching annotated `v0.1.0` tag with exactly one `v`. If `VERSION` already matches, it creates an empty release commit. Staged, unstaged, and untracked changes must be committed or removed first; existing tags are never moved. Nothing is pushed automatically.
-
-Use this command for subsequent releases, for example `scripts/release 0.2.0`. Nix reads `VERSION` in pure evaluation; manually creating a Git tag does not change the reported release version. No version edits in `flake.nix` are needed. Review the release commit and tag before pushing them. If committing or tagging fails, inspect `git status`, `HEAD`, and the tag before retrying; the command leaves any partial work available for inspection.
 
 ## License
 
