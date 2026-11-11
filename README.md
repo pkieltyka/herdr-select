@@ -15,7 +15,7 @@
 
 A keyboard-driven session picker for [Herdr](https://github.com/herdrdev/herdr), built with Go and the Charm v2 libraries. Open a session, start a new one, or stop and delete an old one—all from a simple centered menu.
 
-**Status:** the core CLI adapter and Nix package are implemented and tested. The executable currently reports that the interactive selector is not implemented; the approved UI is the next phase. GitHub-based installation requires these changes to be published.
+**Status:** the interactive selector and Nix package are implemented. Desktop integration is the next phase; GitHub-based installation requires these changes to be published.
 
 <!-- Add the finished application's screenshot here once docs/screenshot.png exists:
 <p align="center">
@@ -55,7 +55,7 @@ Session names accept **1–64 ASCII letters, digits, dots, underscores, and hyph
 
 Herdr must be installed separately and available on PATH. Herdr Select shows an installation warning if it cannot find it.
 
-Once the application is implemented and published, run it with Nix:
+After the repository is published, run it with Nix:
 
 ```sh
 nix run github:pkieltyka/herdr-select
