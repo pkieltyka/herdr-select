@@ -1,0 +1,51 @@
+--- a/flake.nix
++++ b/flake.nix
+@@ -93,6 +93,9 @@
+ 
+     ########################  My own repositories  #########################################
+ 
++    # Keep the selector's tested Go toolchain through its independent Nixpkgs pin.
++    herdr-select.url = "github:pkieltyka/herdr-select";
++
+     # Nixy wallpapers
+     wallpapers = {
+       url = "github:nixy-os/wallpapers";
+--- a/home/base/tui/dev-tools.nix
++++ b/home/base/tui/dev-tools.nix
+@@ -52,6 +52,7 @@
+     hunk
+     omp # Oh My Pi coding agent (overlays/oh-my-pi.nix)
+     herdr # agent multiplexer that lives in your terminal
++    herdr-select # keyboard-driven session picker (overlays/herdr-select.nix)
+     # Hermes is commented out on the hosts (2026-10-28), along with overlays/hermes.nix.
+     # hermes-agent # self-improving AI agent by Nous Research (overlays/hermes.nix)
+     # hermes-desktop # desktop app launcher for the ~/Dev/hermes-agent build (overlays/hermes.nix)
+--- a/home/linux/gui/hyprland/conf/keybindings.lua
++++ b/home/linux/gui/hyprland/conf/keybindings.lua
+@@ -4,7 +4,7 @@
+ hl.bind("SUPER + RETURN", hl.dsp.exec_cmd('uwsm-app -- xdg-terminal-exec -- tmux new -c "$(omarchy-cmd-terminal-tmux-cwd)"'), { description = "Terminal" })
+ -- herdr runs straight in Ghostty, not inside tmux: tmux drops the Super modifier, which breaks
+ -- herdr's Super+Shift chords (home/base/core/herdr/config.toml).
+-hl.bind("SUPER + SHIFT + RETURN", hl.dsp.exec_cmd("uwsm-app -- ghostty --gtk-single-instance=false -e herdr"), { description = "Terminal (herdr)" })
++hl.bind("SUPER + SHIFT + RETURN", hl.dsp.exec_cmd("uwsm-app -- ghostty --gtk-single-instance=false -e herdr-select"), { description = "Terminal (herdr)" })
+ -- hl.bind("SUPER + SHIFT + F", hl.dsp.exec_cmd("uwsm-app -- nautilus --new-window"), { description = "File manager" })
+ -- hl.bind("SUPER + SHIFT + D", hl.dsp.exec_cmd("omarchy-launch-tui lazydocker"), { description = "Docker" })
+ -- hl.bind("SUPER + SHIFT + G", hl.dsp.exec_cmd('omarchy-launch-or-focus ^signal$ "uwsm-app -- signal-desktop"'), { description = "Signal" })
+--- /dev/null
++++ b/overlays/herdr-select.nix
+@@ -0,0 +1,4 @@
++{ herdr-select, ... }:
++final: prev: {
++  herdr-select = herdr-select.packages.${prev.stdenv.hostPlatform.system}.herdr-select;
++}
+--- a/scripts/cooldown.py
++++ b/scripts/cooldown.py
+@@ -25,7 +25,7 @@
+ 
+ ROOT = Path(__file__).resolve().parent.parent
+ # Overlays whose packages come from nixpkgs (exempt) or from flake inputs (checked via flake.lock).
+-INPUT_OVERLAYS = ["default.nix", "nixpkgs-master.nix", "opencode.nix", "pi.nix"]
++INPUT_OVERLAYS = ["default.nix", "nixpkgs-master.nix", "opencode.nix", "pi.nix", "herdr-select.nix"]
+ 
+ 
+ def now():
