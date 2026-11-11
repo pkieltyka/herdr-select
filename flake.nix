@@ -11,6 +11,17 @@
         "aarch64-linux"
       ];
       forAllSystems = nixpkgs.lib.genAttrs systems;
+      releaseVersion = nixpkgs.lib.removeSuffix "\n" (builtins.readFile ./VERSION);
+      revision =
+        if self ? rev then
+          builtins.substring 0 6 self.rev
+        else if self ? dirtyRev then
+          "${builtins.substring 0 6 self.dirtyRev}.dirty"
+        else
+          "unknown";
+      version =
+        assert builtins.match "(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)" releaseVersion != null;
+        "v${releaseVersion}+${revision}";
       perSystem = forAllSystems (
         system:
         let
@@ -19,7 +30,7 @@
           buildGoModule = pkgs.buildGoModule.override { inherit go; };
           package = buildGoModule {
             pname = "herdr-select";
-            version = "0.1.0-dev";
+            inherit version;
             src = pkgs.lib.cleanSourceWith {
               src = ./.;
               filter =
@@ -41,6 +52,11 @@
             ldflags = [
               "-s"
               "-w"
+              "-X main.version=${version}"
+            ];
+            nativeCheckInputs = [
+              pkgs.git
+              pkgs.bash
             ];
             doCheck = true;
             checkPhase = ''

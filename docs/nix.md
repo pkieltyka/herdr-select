@@ -16,6 +16,8 @@ nix profile add .#herdr-select
 
 The build places the executable at `result/bin/herdr-select`. For new files not yet tracked by Git, use `path:.` in place of `.` so Nix includes them.
 
+Check the build identity with `result/bin/herdr-select --version` or `nix run . -- --version`. The package and binary share the release from `VERSION` plus the first six Git commit characters, such as `v0.1.0+abcdef`. Dirty Git sources add `.dirty`; path/archive sources without revision metadata use `+unknown`. `path:.` therefore includes untracked files but does not provide a Git revision. The flake reads `VERSION` without invoking Git or requiring impure evaluation. Use the [release command](../README.md#releases) to keep that file and release tags synchronized.
+
 Once the repository commits are published:
 
 ```sh

@@ -62,6 +62,7 @@ From this checkout:
 ```sh
 nix build
 nix run
+nix run . -- --version
 ```
 
 Once these commits are published, run or install from GitHub:
@@ -74,6 +75,8 @@ nix profile add github:pkieltyka/herdr-select
 For declarative installation through NixOS or Home Manager, add this repository as a flake input and install its `herdr-select` package. See the [Nix setup guide](docs/nix.md) for the full configuration, prepared integration patch, and Ghostty shortcut. Applying the configuration, locking the published GitHub revision, and activating it are separate steps; the patch does not change your current desktop.
 
 The flake exposes packages for `x86_64-linux` and `aarch64-linux`. It uses `pkgs.go` from its locked Nixpkgs input, with no custom Go source override.
+
+`herdr-select --version` prints the build identity without requiring a terminal or Herdr. Nix builds use the tracked `VERSION` and the first six Git commit characters, for example `v0.1.0+abcdef`. Dirty Git builds append `.dirty`; sources without Git metadata use `v0.1.0+unknown`. Direct `go build` / `go run` builds report `dev+unknown` unless a version is supplied with `-ldflags '-X main.version=...'`.
 
 ## Development
 
@@ -99,6 +102,18 @@ nix flake check
 ```
 
 The design, architecture, and build phases live in [specs/projects/herdr-select](specs/projects/herdr-select/). Runtime artwork is plain terminal text; the README's [PNG](docs/logo.png) and [SVG](docs/logo.svg) are documentation assets.
+
+## Releases
+
+From a clean checkout on a branch, run:
+
+```sh
+scripts/release 0.1.0
+```
+
+The command accepts `MAJOR.MINOR.PATCH` without a `v` prefix or leading zeroes. It writes `VERSION`, creates a release commit containing only that file, and creates the matching annotated `v0.1.0` tag. If `VERSION` already matches, it creates an empty release commit. Staged, unstaged, and untracked changes must be committed or removed first; existing tags are never moved. Nothing is pushed automatically.
+
+Use this command for subsequent releases, for example `scripts/release 0.2.0`. Nix reads `VERSION` in pure evaluation; manually creating a Git tag does not change the reported release version. No version edits in `flake.nix` are needed. Review the release commit and tag before pushing them. If committing or tagging fails, inspect `git status`, `HEAD`, and the tag before retrying; the command leaves any partial work available for inspection.
 
 ## License
 

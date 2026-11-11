@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+fail() { printf 'release: %s\n' "$*" >&2; exit 1; }
+
+[[ $# == 1 ]] || fail 'usage: scripts/release MAJOR.MINOR.PATCH'
+version=$1
+[[ $version =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] ||
+  fail 'version must be MAJOR.MINOR.PATCH, without v or leading zeroes'
+tag="v$version"
+
+cd "$(git rev-parse --show-toplevel)"
+git symbolic-ref -q HEAD >/dev/null || fail 'check out a branch before releasing'
+[[ -f VERSION && ! -L VERSION ]] || fail 'VERSION must be a regular file'
+git ls-files --error-unmatch VERSION >/dev/null || fail 'VERSION must be tracked'
+[[ -z $(git status --porcelain --untracked-files=all --ignore-submodules=none) ]] ||
+  fail 'working tree must be clean, including staged and untracked files'
+if git show-ref --verify --quiet "refs/tags/$tag"; then
+  fail "tag $tag already exists"
+fi
+
+printf '%s\n' "$version" > VERSION
+# --only excludes unrelated index entries, even if something stages them after preflight.
+if ! git commit --only --allow-empty -m "Release $tag" -- VERSION; then
+  fail 'commit failed; inspect VERSION and git status before retrying'
+fi
+if ! git tag -a "$tag" -m "Release $tag" HEAD; then
+  fail "release commit exists but tagging failed; inspect HEAD and refs/tags/$tag"
+fi
+printf 'Created %s at %s. Nothing was pushed.\n' "$tag" "$(git rev-parse --short=6 HEAD)"
