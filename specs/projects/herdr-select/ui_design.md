@@ -42,7 +42,7 @@ The corresponding SVG files are editable preview sources. [ram-logo.txt](assets/
 
 ## Layout and styling
 
-- Reserve the terminal's bottom row(s) for the action footer. Center the logo and menu together in the remaining area, with approximately two blank terminal rows between them.
+- Reserve the terminal's bottom row(s) for the action footer. Center the logo and menu together in the remaining area, with up to two blank terminal rows between them. Reduce top padding as the window shrinks; contract the logo-to-panel gap to one row at 29 rows and zero at 28 rows when reserving a footer row. Retain both panel padding rows. Restore spacing automatically when enlarged.
 - Render the ram silhouette using repeated `herdr` letters for filled areas and Unicode braille characters for the outline and internal details. Preserve the horn and terminal-prompt cutout as far as character resolution permits. Use the provided 34-column, 16-row art as the starting point. Render text directly; no image protocol or runtime image-conversion dependency is needed.
 - Use light gray (`#bcbcbc`) for the ram. Use compact plain `herdr` only for the locale/glyph fallback, with normal letter spacing and no extra gaps; terminal size does not trigger this fallback.
 - Use a near-black full-screen background (`#0b0b0b`) and a charcoal menu panel (`#171717`) with no visible outline. Target about 76 columns on a spacious terminal; shrink to fit with outer margins. Provide roughly three cells of horizontal content padding and one cell around the highlight bar.
@@ -96,20 +96,20 @@ The bottom footer shows `Confirm [enter]` while the confirmation choices have fo
 
 ## Small terminals
 
-The fixed minimum is **80 columns × 36 rows**, across all views. Below either dimension, replace the entire UI (including logo, panel, and footer) with this centered block on the normal near-black background; style the title bold cyan and the dimensions/instruction in light text:
+The fixed minimum is **80 columns × 28 rows**, across all views. Below either dimension, replace the entire UI (including logo, panel, and footer) with this centered block on the normal near-black background; style the title bold cyan and the dimensions/instruction in light text:
 
 ```text
 Terminal too small
 
 Current: 68 × 28
-Minimum: 80 × 36
+Minimum: 80 × 28
 
 Resize to continue
 ```
 
 Always use the actual current dimensions. Remove blank rows and shorten the message as needed; clip gracefully down to a single cell, and render nothing at zero width or height. Esc or Ctrl+C exits when idle. Ignore all other input, including paste, to prevent hidden edits or actions; pending-operation protection remains in effect and asynchronous results/notice expiry continue to process.
 
-Enlarging restores the active view automatically, with selection, input/cursor/focus, confirmation, and scroll state retained where possible. At 80 × 36 or larger, retain the full ram and scroll long lists or diagnostics inside the panel. The locale fallback remains available. Keep the footer full-width and contextual, hidden in the form. This approved fixed minimum replaces the earlier adaptive compact-logo layout.
+Enlarging restores the active view automatically, with selection, input/cursor/focus, confirmation, and scroll state retained where possible. The 28-row minimum fits the 16-row ram, nine-row form (including one scrollable diagnostic row), two panel padding rows, and one footer reservation. At 80 × 28 or larger, retain the full ram and scroll long lists or diagnostics inside the panel. The locale fallback remains available. Keep the footer full-width and contextual, hidden in the form. This approved fixed minimum replaces the earlier adaptive compact-logo layout.
 
 ## Review state
 

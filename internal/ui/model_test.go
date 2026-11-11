@@ -121,7 +121,7 @@ func TestAgeSnapshotChangesOnlyWithSuccessfulReload(t *testing.T) {
 	if cmd := m.Init(); cmd != nil {
 		t.Fatal("idle picker scheduled background work")
 	}
-	for _, msg := range []tea.Msg{time.Unix(500, 0), tea.WindowSizeMsg{Width: 80, Height: 36}} {
+	for _, msg := range []tea.Msg{time.Unix(500, 0), tea.WindowSizeMsg{Width: 80, Height: 28}} {
 		if _, cmd := m.Update(msg); cmd != nil {
 			t.Fatal("idle update scheduled background work")
 		}
@@ -176,7 +176,7 @@ func TestInitialLoadCapturesSnapshotWithoutTimer(t *testing.T) {
 }
 
 func TestFormDividerAndCompactButtonSpacing(t *testing.T) {
-	for _, size := range [][2]int{{100, 40}, {80, 36}, {81, 37}} {
+	for _, size := range [][2]int{{100, 40}, {80, 28}, {81, 29}} {
 		t.Run(fmt.Sprint(size), func(t *testing.T) {
 			m, _ := ready()
 			m.Update(tea.WindowSizeMsg{Width: size[0], Height: size[1]})
@@ -373,7 +373,7 @@ func TestStaleResultAndBusyInput(t *testing.T) {
 	if press(m, "q") != nil || press(m, "D") != nil {
 		t.Fatal("busy keys accepted")
 	}
-	m.Update(tea.WindowSizeMsg{Width: 80, Height: 36})
+	m.Update(tea.WindowSizeMsg{Width: 80, Height: 28})
 	run(m, cmd)
 	b.replies = []listReply{{err: errors.New("offline")}}
 	run(m, press(m, "r"))
@@ -395,7 +395,7 @@ func TestOpenMissingAndDiscoveryError(t *testing.T) {
 	}
 	b.replies = []listReply{{err: errors.New("invalid JSON")}}
 	m = New(b, time.Now(), true)
-	m.width, m.height = 80, 36
+	m.width, m.height = 80, 28
 	run(m, m.begin(refresh, "", target{}))
 	if m.view != discoveryError || !strings.Contains(plain(m), "Retry [r]") {
 		t.Fatal("error is not retryable")
@@ -482,7 +482,7 @@ func TestResizeScrollAndRenderBounds(t *testing.T) {
 			t.Fatal("selected invisible")
 		}
 	}
-	m.Update(tea.WindowSizeMsg{Width: 80, Height: 36})
+	m.Update(tea.WindowSizeMsg{Width: 80, Height: 28})
 	if len(m.layout().logo) != 16 {
 		t.Fatal("long list collapsed the logo")
 	}
@@ -581,8 +581,8 @@ func TestLongConfirmationAndEscapedDiagnostics(t *testing.T) {
 	m.selected = 1
 	run(m, press(m, "D"))
 	m.notice = strings.Repeat("Long diagnostic detail. ", 100)
-	m.Update(tea.WindowSizeMsg{Width: 80, Height: 36})
-	assertBounds(t, m, 80, 36)
+	m.Update(tea.WindowSizeMsg{Width: 80, Height: 28})
+	assertBounds(t, m, 80, 28)
 	if !strings.Contains(plain(m), "Cancel") || !strings.Contains(plain(m), "Stop and delete") {
 		t.Fatal("buttons not visible")
 	}
@@ -602,7 +602,7 @@ func TestLongConfirmationAndEscapedDiagnostics(t *testing.T) {
 
 func TestValidationKeepsMinimumSizeFormEditable(t *testing.T) {
 	m, _ := ready()
-	m.Update(tea.WindowSizeMsg{Width: 80, Height: 36})
+	m.Update(tea.WindowSizeMsg{Width: 80, Height: 28})
 	press(m, "enter")
 	if m.tooSmall() {
 		t.Fatal("empty form should fit")
@@ -623,7 +623,7 @@ func TestValidationKeepsMinimumSizeFormEditable(t *testing.T) {
 	if buttonRow() != before {
 		t.Fatal("validation shifted buttons")
 	}
-	assertBounds(t, m, 80, 36)
+	assertBounds(t, m, 80, 28)
 	press(m, "backspace")
 	if m.input.Value() != "" || m.tooSmall() {
 		t.Fatal("cannot correct invalid input")
@@ -642,7 +642,7 @@ func TestMinimumSizePickerPreservesDiagnosticsAndActions(t *testing.T) {
 		m.sessions = append(m.sessions, session(fmt.Sprintf("session-%d", i), false))
 	}
 	m.notice = "Action failed: " + strings.Repeat("failure detail ", 20) + "END"
-	m.Update(tea.WindowSizeMsg{Width: 80, Height: 36})
+	m.Update(tea.WindowSizeMsg{Width: 80, Height: 28})
 	if m.tooSmall() {
 		t.Fatal("picker and diagnostic should fit at minimum size")
 	}
@@ -654,7 +654,7 @@ func TestMinimumSizePickerPreservesDiagnosticsAndActions(t *testing.T) {
 	if !strings.Contains(lines[len(lines)-1], "Open [enter]") {
 		t.Fatal("footer omitted")
 	}
-	assertBounds(t, m, 80, 36)
+	assertBounds(t, m, 80, 28)
 	for range 10 {
 		press(m, "pgdown")
 	}
@@ -669,7 +669,7 @@ func TestMinimumSizePickerPreservesDiagnosticsAndActions(t *testing.T) {
 	if m.notice == "" || m.selected != 1 {
 		t.Fatal("small fallback lost state")
 	}
-	m.Update(tea.WindowSizeMsg{Width: 80, Height: 36})
+	m.Update(tea.WindowSizeMsg{Width: 80, Height: 28})
 	if m.tooSmall() || !strings.Contains(plain(m), "END") {
 		t.Fatal("resize did not restore diagnostic")
 	}
@@ -678,7 +678,7 @@ func TestMinimumSizePickerPreservesDiagnosticsAndActions(t *testing.T) {
 func TestDiscoveryFailureExitStatusAndRecovery(t *testing.T) {
 	b := &fakeBackend{replies: []listReply{{err: errors.New("startup discovery failed")}}}
 	m := New(b, time.Now(), true)
-	m.Update(tea.WindowSizeMsg{Width: 80, Height: 36})
+	m.Update(tea.WindowSizeMsg{Width: 80, Height: 28})
 	run(m, m.begin(refresh, "", target{}))
 	if m.view != discoveryError || m.ExitCode != 1 || press(m, "q") == nil {
 		t.Fatal("startup discovery failure should quit unsuccessfully")
@@ -695,29 +695,27 @@ func TestDiscoveryFailureExitStatusAndRecovery(t *testing.T) {
 }
 
 func TestEveryDiagnosticLineReachable(t *testing.T) {
-	for _, view := range []string{"picker", "form"} {
-		capacities := []int{3}
-		if view == "form" {
-			capacities = []int{2}
-		}
-		for _, capacity := range capacities {
-			t.Run(fmt.Sprintf("%s/%d-rows", view, capacity), func(t *testing.T) {
+	for _, view := range []viewKind{picker, newSession, confirm, startupError, discoveryError} {
+		heights := []int{28, 29, 30, 31, 40}
+		for _, height := range heights {
+			t.Run(fmt.Sprintf("%d/%d-high", view, height), func(t *testing.T) {
 				m, _ := ready(session("a", true), session("b", false))
-				width, height := 80, 36
-				if view == "form" {
+				width := 80
+				if view == newSession {
 					press(m, "enter")
-					width, height = 80, 36
 				}
+				m.view = view
+				m.confirmation = target{Name: strings.Repeat("x", 64), Running: true, Delete: true}
 				m.Update(tea.WindowSizeMsg{Width: width, Height: height})
 				var tokens []string
 				for i := range 7 {
 					tokens = append(tokens, fmt.Sprintf("LINE%d-", i)+strings.Repeat("x", m.layout().bodyWidth-10))
 				}
 				diagnostic := strings.Join(tokens, " ")
-				if view == "picker" {
-					m.notice = diagnostic
-				} else {
+				if view == newSession {
 					m.formError = diagnostic
+				} else {
+					m.notice = diagnostic
 				}
 				if m.tooSmall() {
 					t.Fatal("diagnostic viewport should fit")
@@ -749,20 +747,20 @@ func TestEveryDiagnosticLineReachable(t *testing.T) {
 
 func TestFixedMinimumAcrossViews(t *testing.T) {
 	for _, view := range []viewKind{loading, picker, newSession, confirm, startupError, discoveryError} {
-		for _, size := range [][2]int{{79, 36}, {80, 35}, {79, 35}, {80, 36}, {81, 36}, {80, 37}} {
+		for _, size := range [][2]int{{79, 28}, {80, 27}, {79, 27}, {80, 28}, {81, 28}, {80, 29}} {
 			t.Run(fmt.Sprintf("%d/%dx%d", view, size[0], size[1]), func(t *testing.T) {
 				m, _ := ready(session("work", true))
 				m.view = view
 				m.notice = "underlying diagnostic"
 				m.Update(tea.WindowSizeMsg{Width: size[0], Height: size[1]})
-				wantSmall := size[0] < 80 || size[1] < 36
+				wantSmall := size[0] < 80 || size[1] < 28
 				if m.tooSmall() != wantSmall {
 					t.Fatal("threshold depends on view")
 				}
 				assertBounds(t, m, size[0], size[1])
 				rendered := plain(m)
 				if wantSmall {
-					for _, want := range []string{"Terminal too small", fmt.Sprintf("Current: %d × %d", size[0], size[1]), "Minimum: 80 × 36", "Resize to continue"} {
+					for _, want := range []string{"Terminal too small", fmt.Sprintf("Current: %d × %d", size[0], size[1]), "Minimum: 80 × 28", "Resize to continue"} {
 						if !strings.Contains(rendered, want) {
 							t.Fatalf("missing %q", want)
 						}
@@ -784,7 +782,7 @@ func TestResizeMessageCenteringAndTinyBounds(t *testing.T) {
 	m, _ := ready()
 	m.Update(tea.WindowSizeMsg{Width: 68, Height: 28})
 	lines := strings.Split(plain(m), "\n")
-	for index, want := range []string{"Terminal too small", "", "Current: 68 × 28", "Minimum: 80 × 36", "", "Resize to continue"} {
+	for index, want := range []string{"Terminal too small", "", "Current: 68 × 28", "Minimum: 80 × 28", "", "Resize to continue"} {
 		line := lines[11+index]
 		if strings.TrimSpace(line) != want {
 			t.Fatalf("message row %d = %q", index, line)
@@ -823,7 +821,7 @@ func TestUndersizedInputGuardAndRecovery(t *testing.T) {
 			m.contentScroll = 2
 			m.formError = "saved error"
 			scroll, calls := m.scroll, len(b.calls)
-			m.Update(tea.WindowSizeMsg{Width: 79, Height: 35})
+			m.Update(tea.WindowSizeMsg{Width: 80, Height: 27})
 			for _, key := range []string{"q", "r", "S", "D", "x", "backspace", "enter", "home", "up", "down", "right", "tab", "shift+tab", "pgdown", "pgup"} {
 				if cmd := press(m, key); cmd != nil {
 					t.Fatalf("hidden key %q scheduled action", key)
@@ -844,7 +842,7 @@ func TestUndersizedInputGuardAndRecovery(t *testing.T) {
 					t.Fatal("quit key performed a hidden action")
 				}
 			}
-			m.Update(tea.WindowSizeMsg{Width: 80, Height: 36})
+			m.Update(tea.WindowSizeMsg{Width: 80, Height: 28})
 			if m.view != view || m.input.Value() != "saved-name" || m.selected != 1 || m.confirmation.Name != "work" {
 				t.Fatal("resize recovery lost state")
 			}
@@ -892,7 +890,7 @@ func TestUndersizedPendingMutationResults(t *testing.T) {
 			} else if len(m.sessions) != 0 || !slices.Contains(b.calls, "delete:work") {
 				t.Fatal("pending deletion did not complete")
 			}
-			m.Update(tea.WindowSizeMsg{Width: 80, Height: 36})
+			m.Update(tea.WindowSizeMsg{Width: 80, Height: 28})
 			if needsConfirmation && !strings.Contains(plain(m), "Stop and delete") {
 				t.Fatal("reconfirmation not restored")
 			}
@@ -1008,7 +1006,7 @@ func TestPendingCreateResultAndNoticeExpiryPreserveHiddenForm(t *testing.T) {
 	if press(m, "enter") != nil || m.Launch != nil {
 		t.Fatal("blind create retry was allowed")
 	}
-	m.Update(tea.WindowSizeMsg{Width: 80, Height: 36})
+	m.Update(tea.WindowSizeMsg{Width: 80, Height: 28})
 	if !strings.Contains(plain(m), "duplicate check failed") {
 		t.Fatal("failed check was not restored")
 	}
@@ -1032,14 +1030,14 @@ func TestResizeRecoveryRestartsHiddenFormCursor(t *testing.T) {
 	if visible == hidden || blink == nil {
 		t.Fatal("fixture did not enter the hidden cursor phase")
 	}
-	if _, cmd := m.Update(tea.WindowSizeMsg{Width: 81, Height: 36}); cmd != nil || m.input.View() != hidden {
+	if _, cmd := m.Update(tea.WindowSizeMsg{Width: 81, Height: 28}); cmd != nil || m.input.View() != hidden {
 		t.Fatal("normal resize restarted cursor blinking")
 	}
-	m.Update(tea.WindowSizeMsg{Width: 79, Height: 35})
+	m.Update(tea.WindowSizeMsg{Width: 80, Height: 27})
 	if _, cmd := m.Update(blink()); cmd != nil || m.input.View() != hidden {
 		t.Fatal("hidden form processed cursor input")
 	}
-	_, blink = m.Update(tea.WindowSizeMsg{Width: 80, Height: 36})
+	_, blink = m.Update(tea.WindowSizeMsg{Width: 80, Height: 28})
 	if blink == nil || m.input.View() != visible {
 		t.Fatal("resize recovery did not restore the cursor and schedule blinking")
 	}
@@ -1072,11 +1070,210 @@ func TestResizeRecoveryPreservesFormButtonFocusAndBusyState(t *testing.T) {
 				}
 			}
 			focus, busy := m.focus, m.busy
-			m.Update(tea.WindowSizeMsg{Width: 79, Height: 35})
-			_, cmd := m.Update(tea.WindowSizeMsg{Width: 80, Height: 36})
+			m.Update(tea.WindowSizeMsg{Width: 80, Height: 27})
+			_, cmd := m.Update(tea.WindowSizeMsg{Width: 80, Height: 28})
 			if cmd != nil || m.focus != focus || m.busy != busy || m.input.Focused() || m.input.Position() != 3 || m.input.Value() != "saved-name" {
 				t.Fatal("resize recovery stole focus or changed pending input")
 			}
 		})
+	}
+}
+
+func TestShortTerminalKeepsFullLogoAndControls(t *testing.T) {
+	for _, height := range []int{28, 29, 30, 31, 36, 40} {
+		for _, state := range []string{"loading", "picker", "unavailable", "form", "validation", "submitting", "stop", "delete", "stop-delete", "startup", "discovery"} {
+			t.Run(fmt.Sprintf("%s/%d", state, height), func(t *testing.T) {
+				m, _ := ready(session("work", true))
+				var want []string
+				switch state {
+				case "loading":
+					m.view = loading
+					want = []string{"Loading sessions…"}
+				case "picker", "unavailable":
+					m.selected = 1
+					want = []string{"New Session", "work", "10s", "Open [enter]", "Refresh [r]"}
+					if state == "unavailable" {
+						m.sessions[0].ConnectionError = "connection failed"
+						want = append(want, "Unavailable: connection failed")
+					} else {
+						want = append(want, "Stop [shift+s]", "Delete [shift+d]")
+					}
+				case "form", "validation", "submitting":
+					press(m, "enter")
+					m.input.SetValue("new-name")
+					want = []string{"New Session", "Session name", "new-name", "1-64 characters, no spaces", "OK", "Cancel"}
+					if state == "validation" {
+						m.formError = "Creation failed"
+						want = append(want, "Creation failed")
+					} else if state == "submitting" {
+						press(m, "enter")
+						want = append(want, "Checking session name…")
+					}
+				case "stop", "delete", "stop-delete":
+					m.view = confirm
+					m.confirmation = target{Name: "work", Running: state != "delete", Delete: state != "stop"}
+					want = []string{m.confirmTitle(), "work", "Cancel", "Confirm [enter]"}
+					if state != "delete" {
+						want = append(want, "Running work will be interrupted.")
+					}
+					if state != "stop" {
+						want = append(want, "The saved session will be removed.")
+					}
+				case "startup", "discovery":
+					m.view = startupError
+					want = []string{"Herdr Select", "Cannot connect", "Quit [q]"}
+					if state == "discovery" {
+						m.view = discoveryError
+						want = []string{"Unable to load sessions", "Cannot connect", "Retry [r]", "Quit [q]"}
+					}
+					m.notice = "Cannot connect"
+				}
+				m.Update(tea.WindowSizeMsg{Width: 80, Height: height})
+				assertBounds(t, m, 80, height)
+				rendered := plain(m)
+				for _, text := range want {
+					if !strings.Contains(rendered, text) {
+						t.Fatalf("required content clipped: %q\n%s", text, rendered)
+					}
+				}
+				lines := strings.Split(rendered, "\n")
+				logo := strings.Split(strings.TrimRight(ram, "\n"), "\n")
+				start := 0
+				for start < len(lines) && strings.TrimSpace(lines[start]) == "" {
+					start++
+				}
+				for i, line := range logo {
+					if start+i >= len(lines) || strings.TrimSpace(lines[start+i]) != strings.TrimSpace(line) {
+						t.Fatalf("full logo row %d missing or clipped", i)
+					}
+				}
+				if m.view == newSession {
+					if strings.TrimSpace(lines[len(lines)-1]) != "" || strings.Contains(rendered, "[enter]") {
+						t.Fatal("form footer reservation lost")
+					}
+					wantGap := min(2, height-28)
+					// The panel's own top padding follows the decorative gap.
+					titleRow := start + len(logo) + wantGap + 1
+					if !strings.Contains(lines[titleRow], "New Session") {
+						t.Fatal("form gap did not contract/expand with available height")
+					}
+					if height == 28 && (start != 0 || !strings.Contains(lines[25], "Cancel")) {
+						t.Fatal("minimum form did not use all available rows")
+					}
+				} else {
+					footer := strings.Join(m.footerLinesFor(m.footerActions()), "\n")
+					if footer != "" && strings.TrimSpace(lines[len(lines)-1]) != strings.TrimSpace(footer) {
+						t.Fatal("contextual footer clipped or displaced")
+					}
+				}
+			})
+		}
+	}
+}
+
+func TestShortTerminalResizeKeepsSelectedSessionVisible(t *testing.T) {
+	m, _ := ready()
+	for i := range 40 {
+		m.sessions = append(m.sessions, session(fmt.Sprintf("work-%02d", i), false))
+	}
+	m.setNotice("Completed operation", noticeWarning)
+	for range len(m.sessions) {
+		press(m, "down")
+	}
+	snapshot := m.now
+	for _, height := range []int{28, 27, 28, 40, 29, 30, 28} {
+		m.Update(tea.WindowSizeMsg{Width: 80, Height: height})
+		if m.selected != len(m.sessions) || !m.now.Equal(snapshot) {
+			t.Fatal("resize changed selection or recency snapshot")
+		}
+		if height < 28 {
+			continue
+		}
+		if !strings.Contains(plain(m), "work-39") || !strings.Contains(plain(m), "Completed operation") {
+			t.Fatal("resize lost selected row or notice")
+		}
+	}
+	m.Update(noticeExpired{id: m.noticeID})
+	if strings.Contains(plain(m), "Completed operation") || !strings.Contains(plain(m), "work-39") {
+		t.Fatal("notice expiry lost selected row at minimum size")
+	}
+	press(m, "home")
+	if !strings.Contains(plain(m), "New Session") || m.selected != 0 {
+		t.Fatal("cannot reach top of list at minimum size")
+	}
+}
+
+func TestSingleRowFormDiagnosticPreservesEveryCharacter(t *testing.T) {
+	full := strings.Repeat("x", 67) + "ABC"
+	for _, height := range []int{28, 29, 30, 31, 40} {
+		for _, diagnostic := range []string{full, full + "\n" + strings.Repeat("y", 67) + "DEF", full + strings.Repeat("z", 67) + "GHI", strings.Repeat("界", 33) + "ABCD" + strings.Repeat("語", 33) + "EFGH"} {
+			t.Run(fmt.Sprintf("%d/%d-characters", height, len(diagnostic)), func(t *testing.T) {
+				m, _ := ready()
+				press(m, "enter")
+				m.formError = diagnostic
+				m.Update(tea.WindowSizeMsg{Width: 80, Height: height})
+				var got strings.Builder
+				for page := 0; ; page++ {
+					if page > len(diagnostic) {
+						t.Fatal("diagnostic paging did not stop")
+					}
+					lines := strings.Split(plain(m), "\n")
+					found := false
+					for i, line := range lines {
+						if strings.Contains(line, "1-64 characters, no spaces") {
+							for _, diagnosticLine := range lines[i+1:] {
+								row := strings.TrimSpace(diagnosticLine)
+								if strings.Contains(row, "Cancel") {
+									break
+								}
+								if !strings.Contains(row, "↑↓ / pgup pgdown: more") {
+									got.WriteString(strings.TrimSuffix(row, " ↕"))
+								}
+							}
+							found = true
+							break
+						}
+					}
+					if !found {
+						t.Fatal("form diagnostic row is hidden")
+					}
+					before := m.contentScroll
+					press(m, "pgdown")
+					if m.contentScroll == before {
+						break
+					}
+				}
+				if want := safe(diagnostic); got.String() != want {
+					t.Fatalf("paging lost diagnostic characters:\n got %q\nwant %q", got.String(), want)
+				}
+			})
+		}
+	}
+}
+
+func TestFullWidthDiagnosticTailsAcrossViews(t *testing.T) {
+	for _, view := range []viewKind{picker, newSession, confirm, startupError, discoveryError} {
+		for _, height := range []int{28, 30, 31, 40} {
+			t.Run(fmt.Sprintf("%d/%d", view, height), func(t *testing.T) {
+				m, _ := ready()
+				press(m, "enter")
+				m.view = view
+				m.Update(tea.WindowSizeMsg{Width: 80, Height: height})
+				diagnostic := strings.Repeat("x", 68) + "AB" + strings.Repeat("y", 68) + "CD" + strings.Repeat("z", 68) + "EF"
+				m.notice, m.formError = diagnostic, diagnostic
+				for _, key := range []string{"pgdown", "pgup"} {
+					seen := ""
+					for range 20 {
+						seen += plain(m)
+						press(m, key)
+					}
+					for _, tail := range []string{"AB", "CD", "EF"} {
+						if !strings.Contains(seen, tail) {
+							t.Fatalf("%s lost full-width line tail %q", key, tail)
+						}
+					}
+				}
+			})
+		}
 	}
 }

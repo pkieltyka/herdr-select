@@ -15,12 +15,14 @@ import (
 var ram string
 
 const (
-	minimumWidth  = 80
-	minimumHeight = 36
+	minimumWidth = 80
+	// Full ram (16), minimum form (9), panel padding (2), footer reserve (1).
+	minimumHeight = 28
 )
 
 type layout struct {
 	panelWidth, bodyWidth, available, capacity int
+	logoGap                                    int
 	logo                                       []string
 	footer                                     []string
 	small                                      bool
@@ -95,7 +97,10 @@ func (m *Model) layout() layout {
 	if m.compact {
 		l.logo = []string{"herdr"}
 	}
-	l.capacity = max(0, l.available-len(l.logo)-2-2)
+	// Preserve enough room for the complete form before adding decorative space.
+	// Budget for the form in every view to keep decorative spacing consistent.
+	l.logoGap = min(2, max(0, l.available-len(l.logo)-2-m.formHeight(l.bodyWidth)))
+	l.capacity = max(0, l.available-len(l.logo)-l.logoGap-2)
 	l.small = m.tooSmall()
 	return l
 }
@@ -220,7 +225,7 @@ func (m *Model) View() tea.View {
 				body = append(body, errorStyle.Render(line))
 			}
 		}
-		groupHeight := len(l.logo) + 2 + len(body) + 2
+		groupHeight := len(l.logo) + l.logoGap + len(body) + 2
 		top := max(0, (l.available-groupHeight)/2)
 		for range top {
 			screen = append(screen, base.Render(strings.Repeat(" ", m.width)))
@@ -231,7 +236,7 @@ func (m *Model) View() tea.View {
 		for _, line := range l.logo {
 			screen = append(screen, centered(fit(line, logoWidth), m.width, logoStyle))
 		}
-		for range 2 {
+		for range l.logoGap {
 			screen = append(screen, base.Render(strings.Repeat(" ", m.width)))
 		}
 		panel := lipgloss.NewStyle().Background(panelBackground).Foreground(foreground)
@@ -459,6 +464,19 @@ func contentScrollMetrics(lineCount, capacity int) (visible, maximum int) {
 	return visible, lineCount - visible
 }
 
+func scrollContentLines(lines []string, capacity, width int) []string {
+	if capacity > 1 || len(lines) <= 1 {
+		return lines
+	}
+	// A one-row viewport shares its row with the scroll hint. Rewrap rather
+	// than truncate so every character remains reachable on subsequent pages.
+	var wrapped []string
+	for _, line := range lines {
+		wrapped = append(wrapped, strings.Split(ansi.Wrap(line, max(1, width-2), ""), "\n")...)
+	}
+	return wrapped
+}
+
 func (m *Model) contentScrollMetrics() (int, int) {
 	l := m.layout()
 	var lines []string
@@ -476,16 +494,17 @@ func (m *Model) contentScrollMetrics() (int, int) {
 	default:
 		lines = wrap(m.notice, l.bodyWidth)
 	}
-	return contentScrollMetrics(len(lines), capacity)
+	return contentScrollMetrics(len(scrollContentLines(lines, capacity, l.bodyWidth)), capacity)
 }
 
 func (m *Model) scrolled(lines []string, capacity, width int) []string {
+	lines = scrollContentLines(lines, capacity, width)
 	if len(lines) <= capacity {
 		return lines
 	}
 	capacity = max(1, capacity)
 	if capacity == 1 {
-		return []string{ansi.Truncate(lines[min(m.contentScroll, len(lines)-1)], max(1, width-2), "…") + " ↕"}
+		return []string{lines[min(m.contentScroll, len(lines)-1)] + " ↕"}
 	}
 	visible, maximum := contentScrollMetrics(len(lines), capacity)
 	start := min(m.contentScroll, maximum)
