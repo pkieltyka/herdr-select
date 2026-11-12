@@ -53,7 +53,45 @@ Session names are case-sensitive and accept **1–64 ASCII letters, digits, dots
 
 ## Installation
 
-Herdr must be installed separately and available on PATH. Herdr Select shows an installation warning if it cannot find it. It uses the same environment, configuration, and working directory as a direct Herdr invocation. Standard session commands list sessions on the current host; saved remote connections remain managed by Herdr.
+Install [Herdr](https://github.com/herdrdev/herdr#install) separately and make sure `herdr` is available on your `PATH`. Herdr Select shows an installation warning if it cannot find it. It uses the same environment, configuration, and working directory as a direct Herdr invocation. Standard session commands list sessions on the current host; saved remote connections remain managed by Herdr.
+
+The supported targets are Linux x86-64 (`amd64`) and ARM64 (`arm64`); macOS and Windows have not been validated. Running the picker requires an interactive terminal.
+
+### With Go (no Nix required)
+
+Use [Go 1.27.3 or newer](https://go.dev/dl/), as required by [go.mod](go.mod):
+
+```sh
+go install github.com/pkieltyka/herdr-select/cmd/herdr-select@latest
+```
+
+Go installs the executable in `GOBIN` if configured, otherwise in the `bin` directory under `GOPATH` (normally `$HOME/go/bin`). Add that directory to your `PATH`. For the default location in Bash or Zsh:
+
+```sh
+export PATH="$HOME/go/bin:$PATH"
+herdr-select --version
+herdr-select
+```
+
+Add the `export` line to `~/.bashrc` or `~/.zshrc` to keep it for new terminals. If you use a custom Go installation directory, check `go env GOBIN GOPATH` and use its binary directory instead. Older Go installations with [automatic toolchain switching](https://go.dev/doc/toolchain) enabled may download the required toolchain; if yours refuses the required version, upgrade Go.
+
+Run the same `go install` command again to update. With no published version tags, `@latest` installs the default branch; once release tags are published, it selects the latest release. Go installs currently print `dev+unknown` for `--version`; this does not mean installation failed.
+
+### From source with Go
+
+With Git and Go installed:
+
+```sh
+git clone https://github.com/pkieltyka/herdr-select.git
+cd herdr-select
+go build -o ./bin/herdr-select ./cmd/herdr-select
+./bin/herdr-select --version
+./bin/herdr-select
+```
+
+To install the checkout into your Go binary directory instead, run `go install ./cmd/herdr-select` and use the `PATH` setup above.
+
+### With Nix
 
 From this checkout:
 
@@ -63,7 +101,7 @@ nix run
 nix run . -- --version
 ```
 
-Once these commits are published, run or install from GitHub:
+Run or install from GitHub:
 
 ```sh
 nix run github:pkieltyka/herdr-select
@@ -74,7 +112,9 @@ For declarative installation through NixOS or Home Manager, add this repository 
 
 The flake exposes packages for `x86_64-linux` and `aarch64-linux`. It uses `pkgs.go` from its locked Nixpkgs input, with no custom Go source override.
 
-`herdr-select --version` prints the build identity without requiring a terminal or Herdr. Nix builds use the tracked `VERSION` and the first six Git commit characters, for example `v0.1.0+abcdef`. Dirty Git builds append `.dirty`; sources without Git metadata use `v0.1.0+unknown`. Direct `go build` / `go run` builds report `dev+unknown` unless a version is supplied with `-ldflags '-X main.version=...'`.
+### Build version
+
+`herdr-select --version` prints the build identity without requiring a terminal or Herdr. Nix builds use the tracked `VERSION` and the first six Git commit characters, for example `v0.1.0+abcdef`. Dirty Git builds append `.dirty`; sources without Git metadata use `v0.1.0+unknown`. Direct `go install` / `go build` / `go run` builds report `dev+unknown` unless a version is supplied with `-ldflags '-X main.version=...'`.
 
 ## Development
 
