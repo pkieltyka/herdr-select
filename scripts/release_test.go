@@ -28,7 +28,12 @@ func newReleaseRepo(t *testing.T) *releaseRepo {
 		}
 	}
 	env = append(env, "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL=/dev/null")
-	r := &releaseRepo{t, t.TempDir(), script, env}
+	// Git reports the physical worktree path, including under symlinked temp parents.
+	dir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := &releaseRepo{t, dir, script, env}
 	r.git("init", "-q")
 	r.git("config", "user.email", "test@example.invalid")
 	r.git("config", "user.name", "Release Test")
@@ -86,6 +91,17 @@ func TestReleaseRepoIgnoresInheritedGitEnvironment(t *testing.T) {
 		outer.git("rev-parse", "HEAD") != before || outer.git("status", "--porcelain") != "" {
 		t.Fatal("inherited Git environment changed outer repository")
 	}
+}
+
+func TestReleaseRepoSymlinkTempDir(t *testing.T) {
+	root := t.TempDir()
+	linked := filepath.Join(root, "linked")
+	if err := os.Symlink(root, linked); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("TMPDIR", linked)
+	// A fresh subtest allocates its temporary repositories through the symlink.
+	t.Run("InheritedGitEnvironment", TestReleaseRepoIgnoresInheritedGitEnvironment)
 }
 
 func TestRelease(t *testing.T) {

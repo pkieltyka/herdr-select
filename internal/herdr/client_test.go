@@ -69,7 +69,11 @@ func helper(path string) int {
 
 func fixtureClient(t *testing.T, f fixture) (*Client, string) {
 	t.Helper()
-	dir := t.TempDir()
+	// Subprocess cwd reporting resolves symlinked temporary parents (e.g. /var on macOS).
+	dir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
 	f.Capture = filepath.Join(dir, "invocation.json")
 	path := filepath.Join(dir, "fixture.json")
 	data, err := json.Marshal(f)
@@ -191,6 +195,18 @@ func TestClientList(t *testing.T) {
 	if !reflect.DeepEqual(got.Args, []string{"session", "list", "--json"}) || got.Dir != c.dir || got.Marker != "preserved" || got.SessionEnv != "other" {
 		t.Fatalf("unexpected invocation %+v", got)
 	}
+}
+
+func TestClientSymlinkTempDir(t *testing.T) {
+	root := t.TempDir()
+	linked := filepath.Join(root, "linked")
+	if err := os.Symlink(root, linked); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("TMPDIR", linked)
+	// Fresh subtests allocate their temporary directories through the symlink.
+	t.Run("List", TestClientList)
+	t.Run("NewClient", TestNewClient)
 }
 
 func TestClientEmptyList(t *testing.T) {
