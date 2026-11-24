@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"syscall"
@@ -27,17 +28,17 @@ func TestSubprocess(t *testing.T) {
 	if mode == "" {
 		return
 	}
+	// Helper scripts set the mode and pass their own arguments after "--".
 	args := os.Args
 	for i, arg := range args {
 		if arg == "--" {
 			args = args[i+1:]
-			mode = "herdr"
 			break
 		}
 	}
 	switch mode {
 	case "app":
-		os.Exit(Run())
+		os.Exit(Run(strings.Fields(os.Getenv("SELECTOR_ARGS")), "test-version"))
 	case "wait":
 		cmd := exec.Command(os.Args[0], "-test.run=TestSubprocess")
 		cmd.Env = append(os.Environ(), "SELECTOR_TEST_PROCESS=signal-child")
@@ -70,6 +71,18 @@ func TestSubprocess(t *testing.T) {
 		fmt.Printf("CHILD_TTY=%t RESTORED=%t ARGS=%s\n", term.IsTerminal(os.Stdin.Fd()) && term.IsTerminal(os.Stdout.Fd()), restored, strings.Join(args, " "))
 		fmt.Fprintln(os.Stderr, "DISPOSABLE_CHILD_DIAGNOSTIC")
 		os.Exit(7)
+	case "rodeo":
+		var sessions []string
+		for _, entry := range os.Environ() {
+			if value, ok := strings.CutPrefix(entry, "HC_SESSION="); ok {
+				sessions = append(sessions, value)
+			}
+		}
+		fmt.Printf("CLIENT_TTY=%t ARGS=%q HC_SESSION=%q\n", term.IsTerminal(os.Stdin.Fd()) && term.IsTerminal(os.Stdout.Fd()), args, sessions)
+		os.Exit(9)
+	case "hc":
+		_ = os.WriteFile(os.Getenv("HC_MARKER"), nil, 0o600)
+		os.Exit(3)
 	}
 	os.Exit(99)
 }
@@ -92,25 +105,65 @@ func waitFor(t *testing.T, c *capture, want string) {
 	}
 	t.Fatalf("missing %q in %q", want, c.text())
 }
-func helperEnv(t *testing.T) []string {
+
+// writeHelper puts a disposable program on PATH that reruns this test binary
+// in the given mode.
+func writeHelper(t *testing.T, dir, name, mode string) string {
 	t.Helper()
-	dir := t.TempDir()
-	path := filepath.Join(dir, "herdr")
+	path := filepath.Join(dir, name)
 	executable, err := os.Executable()
 	if err != nil {
 		t.Fatal(err)
 	}
-	script := "#!/bin/sh\nexec '" + strings.ReplaceAll(executable, "'", "'\\''") + "' -test.run=TestSubprocess -- \"$@\"\n"
+	script := "#!/bin/sh\nexport SELECTOR_TEST_PROCESS=" + mode + "\nexec '" + strings.ReplaceAll(executable, "'", "'\\''") + "' -test.run=TestSubprocess -- \"$@\"\n"
 	if err = os.WriteFile(path, []byte(script), 0700); err != nil {
 		t.Fatal(err)
 	}
+	return path
+}
+
+// helperEnv puts only a disposable herdr on PATH and isolates every folder
+// herdr-core reads, dropping the nesting and HC_* variables of the terminal
+// the tests run in.
+func helperEnv(t *testing.T) []string {
+	t.Helper()
+	dir := t.TempDir()
+	path := writeHelper(t, dir, "herdr", "herdr")
+	home := t.TempDir()
 	var env []string
 	for _, entry := range os.Environ() {
-		if !strings.HasPrefix(entry, "PATH=") && !strings.HasPrefix(entry, "HERDR_PANE_ID=") && !strings.HasPrefix(entry, "SELECTOR_TEST_PROCESS=") {
+		key, _, _ := strings.Cut(entry, "=")
+		if !slices.Contains([]string{"PATH", "HOME", "HERDR_PANE_ID", "HERDR_APP_HOME", "SELECTOR_TEST_PROCESS", "SELECTOR_ARGS"}, key) &&
+			!strings.HasPrefix(key, "HC_") && !strings.HasPrefix(key, "XDG_") {
 			env = append(env, entry)
 		}
 	}
-	return append(env, "PATH="+dir, "TERM=xterm-256color", "LANG=C.UTF-8", "SELECTOR_TEST_PROCESS=app", "HELPER_PATH="+path)
+	return append(env, "PATH="+dir, "TERM=xterm-256color", "LANG=C.UTF-8", "SELECTOR_TEST_PROCESS=app", "HELPER_PATH="+path,
+		"HOME="+home, "XDG_STATE_HOME="+filepath.Join(home, "state"), "XDG_RUNTIME_DIR="+filepath.Join(home, "run"),
+		"XDG_CONFIG_HOME="+filepath.Join(home, "config"), "HERDR_APP_HOME="+filepath.Join(home, "app"))
+}
+
+// v2Env selects --app=rodeo with a disposable rodeo, and hc when withHC. hc
+// records any run in the returned marker path.
+func v2Env(t *testing.T, withHC bool) (env []string, marker string) {
+	t.Helper()
+	env = helperEnv(t)
+	dir := filepath.Dir(lookup(env, "HELPER_PATH"))
+	writeHelper(t, dir, "rodeo", "rodeo")
+	if withHC {
+		writeHelper(t, dir, "hc", "hc")
+	}
+	marker = filepath.Join(t.TempDir(), "hc-ran")
+	return append(env, "SELECTOR_ARGS=--app=rodeo", "HC_MARKER="+marker), marker
+}
+
+func lookup(env []string, key string) string {
+	for _, entry := range env {
+		if value, ok := strings.CutPrefix(entry, key+"="); ok {
+			return value
+		}
+	}
+	return ""
 }
 func openPTY(t *testing.T) (*os.File, *os.File) {
 	t.Helper()
@@ -221,15 +274,27 @@ func TestPTYStartFailureRecoversAndQuits(t *testing.T) {
 	}
 }
 func TestPTYWarningsAndQuit(t *testing.T) {
-	for _, kind := range []string{"missing", "nested"} {
+	for _, kind := range []string{"missing", "v1-missing", "nested", "hc-nested", "v2-no-hc", "v2-nested"} {
 		t.Run(kind, func(t *testing.T) {
 			env := helperEnv(t)
-			want := "Detach from your current Herdr"
-			if kind == "missing" {
+			want := "Detach from your current herdr or hc"
+			switch kind {
+			case "missing":
 				env = append(env, "PATH="+t.TempDir())
+				want = "Install herdr or herdr-app"
+			case "v1-missing":
+				env = append(env, "PATH="+t.TempDir(), "SELECTOR_ARGS=--app=herdr")
 				want = "Herdr is required"
-			} else {
+			case "nested":
 				env = append(env, "HERDR_PANE_ID=disposable")
+			case "hc-nested":
+				env = append(env, "HC_TERMINAL_ID=t1")
+			case "v2-no-hc":
+				env, _ = v2Env(t, false)
+				want = "hc (herdr-core) is required"
+			case "v2-nested":
+				env, _ = v2Env(t, true)
+				env = append(env, "HC_TERMINAL_ID=t1")
 			}
 			_, master, _, out, done := launchPTY(t, env)
 			waitFor(t, out, want)
@@ -238,6 +303,45 @@ func TestPTYWarningsAndQuit(t *testing.T) {
 				t.Fatal(code)
 			}
 		})
+	}
+}
+func TestPTYV2Handoff(t *testing.T) {
+	env, marker := v2Env(t, true)
+	if err := os.MkdirAll(filepath.Join(lookup(env, "XDG_STATE_HOME"), "herdr-core", "work"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	_, master, _, out, done := launchPTY(t, append(env, "HC_SESSION=other"))
+	waitFor(t, out, "work")
+	if _, err := master.Write([]byte("\x1b[B")); err != nil { // Down from New Session to work.
+		t.Fatal(err)
+	}
+	waitFor(t, out, "Resume")
+	if _, err := master.Write([]byte("\r")); err != nil {
+		t.Fatal(err)
+	}
+	if code := exitCode(finish(t, done)); code != 9 {
+		t.Fatalf("exit %d: %s", code, out.text())
+	}
+	waitFor(t, out, `CLIENT_TTY=true ARGS=[] HC_SESSION=["work"]`)
+	if _, err := os.Stat(marker); err == nil {
+		t.Fatal("hc ran while listing or launching")
+	}
+}
+func TestArgsWithoutTerminal(t *testing.T) {
+	for _, tc := range []struct {
+		args, want string
+		code       int
+	}{
+		{"--bogus", Usage + "\n", 2},
+		{"--app=", Usage + "\n", 2},
+		{"--version", "test-version\n", 0},
+	} {
+		cmd := exec.Command(os.Args[0], "-test.run=TestSubprocess")
+		cmd.Env = append(helperEnv(t), "SELECTOR_ARGS="+tc.args, "HERDR_PANE_ID=nested")
+		output, err := cmd.CombinedOutput()
+		if exitCode(err) != tc.code || string(output) != tc.want {
+			t.Errorf("%s: exit %v, %q; want %d, %q", tc.args, err, output, tc.code, tc.want)
+		}
 	}
 }
 func TestRejectNonTerminal(t *testing.T) {

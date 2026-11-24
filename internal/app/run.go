@@ -1,20 +1,32 @@
 package app
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
+	"runtime"
 	"strings"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/term"
+	"github.com/pkieltyka/herdr-select/internal/hc"
 	"github.com/pkieltyka/herdr-select/internal/herdr"
 	"github.com/pkieltyka/herdr-select/internal/session"
 	"github.com/pkieltyka/herdr-select/internal/ui"
 )
 
-func Run() int {
+func Run(args []string, version string) int {
+	opts, err := ParseArgs(args)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, Usage)
+		return 2
+	}
+	if opts.Version {
+		fmt.Println(version)
+		return 0
+	}
 	if !term.IsTerminal(os.Stdin.Fd()) || !term.IsTerminal(os.Stdout.Fd()) {
 		fmt.Fprintln(os.Stderr, "herdr-select requires an interactive terminal.")
 		return 1
@@ -27,14 +39,11 @@ func Run() int {
 		locale = os.Getenv("LANG")
 	}
 	compact := !strings.Contains(strings.ToLower(locale), "utf-8") && !strings.Contains(strings.ToLower(locale), "utf8")
-	backend, err := newHerdrBackend()
+	backend, warning := newBackend(opts.App, os.Environ(), exec.LookPath)
 	var model *ui.Model
-	switch {
-	case err != nil:
-		model = ui.Warning("Herdr is required. Install Herdr first, then run herdr-select again. https://github.com/herdrdev/herdr", time.Now(), compact)
-	case os.Getenv("HERDR_PANE_ID") != "":
-		model = ui.Warning("Detach from your current Herdr session before opening another session. Nested Herdr clients are not supported.", time.Now(), compact)
-	default:
+	if warning != "" {
+		model = ui.Warning(warning, time.Now(), compact)
+	} else {
 		model = ui.New(backend, time.Now(), compact)
 	}
 	for {
@@ -57,14 +66,40 @@ func Run() int {
 	}
 }
 
-func newHerdrBackend() (session.Backend, error) {
-	path, err := exec.LookPath("herdr")
-	if err != nil {
-		return nil, err
+// newBackend chooses the client, checks what must hold before any session is
+// listed, and builds the chosen protocol's backend. A non-empty warning
+// replaces the picker.
+func newBackend(app string, environ []string, lookPath func(string) (string, error)) (session.Backend, string) {
+	choice, missing := Choose(app, lookPath)
+	if missing != "" {
+		return nil, missing
 	}
-	client, err := herdr.NewClient(path)
-	if err != nil {
-		return nil, err
+	env := hc.EnvFrom(environ)
+	if env["HERDR_PANE_ID"] != "" || env["HC_TERMINAL_ID"] != "" {
+		return nil, "Detach from your current herdr or hc session before opening another session."
 	}
-	return client, nil
+	if choice.Protocol == V1 {
+		client, err := herdr.NewClient(choice.ClientPath)
+		if err != nil {
+			return nil, err.Error()
+		}
+		return client, ""
+	}
+	paths, err := hc.ResolvePaths(env, os.Getuid(), runtime.GOOS, isDir)
+	if errors.Is(err, hc.ErrFixedSocket) {
+		return nil, "herdr-select does not support HC_SOCKET or a fixed socket in herdr-core's config."
+	}
+	if err != nil {
+		return nil, err.Error()
+	}
+	dir, err := os.Getwd()
+	if err != nil {
+		return nil, err.Error()
+	}
+	return hc.New(paths, env, environ, choice.HcPath, choice.ClientPath, dir), ""
+}
+
+func isDir(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && info.IsDir()
 }
