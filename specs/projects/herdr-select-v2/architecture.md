@@ -159,7 +159,7 @@ The probe never writes and never speaks the hc protocol.
 
 ### Names (`names.go`)
 
-`validExisting` (listing filter): non-empty; valid UTF-8; not `.` or `..`; no `unicode.IsControl` rune; none of `/ \ : * ? " < > |`.
+`validExisting` (listing filter): non-empty; valid UTF-8; no leading or trailing whitespace (`strings.TrimSpace(name) == name`, because hc trims `HC_SESSION`); not `.` or `..`; no `unicode.IsControl` rune; none of `/ \ : * ? " < > |`.
 
 `ValidateNewName` checks in this order, each with its own message:
 

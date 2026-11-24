@@ -88,7 +88,7 @@ Follow herdr-core 0.1.20's path rules (`crates/hc/src/paths.rs` in rodeo mirrors
 
 ### Names
 
-Existing-session names are accepted for listing when they follow hc's rules: not empty, not `.` or `..`, no control characters, and none of `/ \ : * ? " < > |`.
+Existing-session names are accepted for listing when they follow hc's rules: not empty, not `.` or `..`, no control characters, and none of `/ \ : * ? " < > |`. Names with leading or trailing whitespace are also skipped: hc trims `HC_SESSION` (and an all-whitespace value becomes `default`), so such a folder would open, stop or delete a different session. hc never creates one.
 
 New-session names in v2 use these rules, checked as the user types, with the same form behavior as v1:
 

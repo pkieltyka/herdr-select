@@ -43,7 +43,7 @@
                   "bin"
                 ]);
             };
-            vendorHash = "sha256-WVavIlbsXEtxuES4BtHjnVPza6KGmSkkV65Q0tsvwY4=";
+            vendorHash = "sha256-9lANZ2fHemeABVJPxJ3sgOFvHzHpfMUigQIjzIT33SQ=";
             subPackages = [ "cmd/herdr-select" ];
             env = {
               CGO_ENABLED = "0";
