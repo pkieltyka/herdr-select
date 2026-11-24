@@ -32,6 +32,7 @@ type fakeBackend struct {
 	hint, client   string
 	checkLaunchErr error
 	checked        []string
+	consequence    func(delete, running bool) string
 }
 
 var _ session.Backend = (*fakeBackend)(nil)
@@ -59,6 +60,12 @@ func (b *fakeBackend) ClientName() string {
 	return "Herdr"
 }
 func (b *fakeBackend) LaunchCommand(string) *exec.Cmd { return nil }
+func (b *fakeBackend) Consequence(delete, running bool) string {
+	if b.consequence != nil {
+		return b.consequence(delete, running)
+	}
+	return herdr.Consequence(delete, running)
+}
 
 func (b *fakeBackend) List(context.Context) ([]session.Session, error) {
 	b.calls = append(b.calls, "list")
@@ -1114,9 +1121,9 @@ func TestResizeRecoveryPreservesFormButtonFocusAndBusyState(t *testing.T) {
 
 func TestShortTerminalKeepsFullLogoAndControls(t *testing.T) {
 	for _, height := range []int{28, 29, 30, 31, 36, 40} {
-		for _, state := range []string{"loading", "picker", "unavailable", "form", "validation", "submitting", "stop", "delete", "stop-delete", "startup", "discovery"} {
+		for _, state := range []string{"loading", "picker", "unavailable", "form", "validation", "submitting", "stop", "delete", "stop-delete", "stop-delete-hc", "startup", "discovery"} {
 			t.Run(fmt.Sprintf("%s/%d", state, height), func(t *testing.T) {
-				m, _ := ready(fakeSession("work", true))
+				m, b := ready(fakeSession("work", true))
 				var want []string
 				switch state {
 				case "loading":
@@ -1142,6 +1149,14 @@ func TestShortTerminalKeepsFullLogoAndControls(t *testing.T) {
 						press(m, "enter")
 						want = append(want, "Checking session name…")
 					}
+				case "stop-delete-hc":
+					// herdr-core's longest consequence wraps to more lines than v1's.
+					b.consequence = func(bool, bool) string {
+						return "Its programs end. Its saved layout and history are removed. This can't be undone."
+					}
+					m.view = confirm
+					m.confirmation = target{Name: "work", Running: true, Delete: true}
+					want = []string{m.confirmTitle(), "work", "Its programs end.", "be undone.", "Cancel", "Confirm [enter]"}
 				case "stop", "delete", "stop-delete":
 					m.view = confirm
 					m.confirmation = target{Name: "work", Running: state != "delete", Delete: state != "stop"}
@@ -1326,6 +1341,30 @@ func TestFormShowsBackendHint(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Fatalf("missing %q in\n%s", want, out)
 		}
+	}
+}
+
+func TestConfirmationConsequenceComesFromBackend(t *testing.T) {
+	for _, tc := range []struct {
+		key     string
+		running bool
+		want    string
+	}{
+		{"S", true, "consequence delete=false running=true"},
+		{"D", false, "consequence delete=true running=false"},
+		{"D", true, "consequence delete=true running=true"},
+	} {
+		t.Run(tc.want, func(t *testing.T) {
+			m, b := ready(fakeSession("work", tc.running))
+			b.consequence = func(delete, running bool) string {
+				return fmt.Sprintf("consequence delete=%v running=%v", delete, running)
+			}
+			m.selected = 1
+			run(m, press(m, tc.key))
+			if out := plain(m); m.view != confirm || !strings.Contains(out, tc.want) || strings.Contains(out, "saved session") {
+				t.Fatal(out)
+			}
+		})
 	}
 }
 

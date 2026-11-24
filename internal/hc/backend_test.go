@@ -459,6 +459,22 @@ func TestLaunchCommand(t *testing.T) {
 	}
 }
 
+func TestConsequence(t *testing.T) {
+	b := New(Paths{}, nil, nil, "/bin/hc", "/bin/rodeo", "/")
+	for _, tc := range []struct {
+		delete, running bool
+		want            string
+	}{
+		{false, true, "Its programs end. Terminals with keep on come back as shells next time."},
+		{true, false, "Its saved layout and history are removed. This can't be undone."},
+		{true, true, "Its programs end. Its saved layout and history are removed. This can't be undone."},
+	} {
+		if got := b.Consequence(tc.delete, tc.running); got != tc.want {
+			t.Errorf("Consequence(%v, %v) = %q, want %q", tc.delete, tc.running, got, tc.want)
+		}
+	}
+}
+
 func TestNewProductionDeadlines(t *testing.T) {
 	b := New(Paths{}, nil, nil, "/bin/hc", "/bin/rodeo", "/")
 	if b.listTimeout != 5*time.Second || b.stopTimeout != 20*time.Second || b.hc.WaitDelay != time.Second || b.hc.Program != "hc" || b.hc.Executable != "/bin/hc" {

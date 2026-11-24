@@ -41,6 +41,19 @@ func (c *Client) ValidateNewName(name string, existing []session.Session) error 
 func (c *Client) NameHint() string                          { return NameHint }
 func (c *Client) CheckLaunch(context.Context, string) error { return nil }
 func (c *Client) ClientName() string                        { return "Herdr" }
+func (c *Client) Consequence(delete, running bool) string   { return Consequence(delete, running) }
+
+// Consequence is v1's explanation in the stop and delete confirmations.
+func Consequence(delete, running bool) string {
+	switch {
+	case !delete:
+		return "Running work will be interrupted. Saved session state will remain."
+	case running:
+		return "Running work will be interrupted. The saved session will be removed."
+	default:
+		return "The saved session will be removed."
+	}
+}
 
 // LaunchCommand only constructs the command. The app owns terminal handoff,
 // Start/Wait, streams, and signals; interactive clients have no deadline.

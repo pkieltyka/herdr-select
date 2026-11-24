@@ -1,5 +1,5 @@
 {
-  description = "A terminal session picker for Herdr";
+  description = "A terminal session picker for herdr and herdr-core";
 
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
 
@@ -66,7 +66,7 @@
               runHook postCheck
             '';
             meta = {
-              description = "A terminal session picker for Herdr";
+              description = "A terminal session picker for herdr and herdr-core";
               homepage = "https://github.com/pkieltyka/herdr-select";
               license = pkgs.lib.licenses.mit;
               platforms = systems;
@@ -88,7 +88,7 @@
         default = {
           type = "app";
           program = "${self.packages.${system}.herdr-select}/bin/herdr-select";
-          meta.description = "Choose a Herdr session";
+          meta.description = "Choose a herdr or herdr-core session";
         };
       });
       devShells = forAllSystems (

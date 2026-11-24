@@ -22,6 +22,10 @@ type Backend interface {
 	ClientName() string
 	// LaunchCommand builds, but does not start, the interactive client.
 	LaunchCommand(name string) *exec.Cmd
+	// Consequence is the confirmation's explanation of what stopping
+	// (delete false) or deleting a session does; running is true when the
+	// delete stops the session first.
+	Consequence(delete, running bool) string
 }
 
 // CommandError describes a failed CLI operation. Uncertain means the child ran

@@ -429,15 +429,8 @@ func (m *Model) confirmLines(width int) []string {
 	title := m.confirmTitle()
 	lines := []string{warningStyle.Bold(true).Render(title), ""}
 	lines = append(lines, wrap(title+" ‘"+m.confirmation.Name+"’?", width)...)
-	consequence := "Running work will be interrupted. Saved session state will remain."
-	if m.confirmation.Delete {
-		consequence = "The saved session will be removed."
-		if m.confirmation.Running {
-			consequence = "Running work will be interrupted. The saved session will be removed."
-		}
-	}
 	lines = append(lines, "")
-	lines = append(lines, wrap(consequence, width)...)
+	lines = append(lines, wrap(m.backend.Consequence(m.confirmation.Delete, m.confirmation.Running), width)...)
 	if m.notice != "" {
 		lines = append(lines, "")
 		for _, line := range wrap(m.notice, width) {

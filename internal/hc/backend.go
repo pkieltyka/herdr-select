@@ -48,6 +48,19 @@ func (b *Backend) ValidateNewName(name string, existing []session.Session) error
 func (b *Backend) NameHint() string   { return NameHint }
 func (b *Backend) ClientName() string { return filepath.Base(b.clientPath) }
 
+// Consequence explains the stop and delete confirmations in herdr-core's
+// terms: delete removes the state folder, and kept terminals return as shells.
+func (b *Backend) Consequence(delete, running bool) string {
+	switch {
+	case !delete:
+		return "Its programs end. Terminals with keep on come back as shells next time."
+	case running:
+		return "Its programs end. Its saved layout and history are removed. This can't be undone."
+	default:
+		return "Its saved layout and history are removed. This can't be undone."
+	}
+}
+
 // LaunchCommand only constructs the command; the client starts the session's
 // core when needed. Interactive clients have no deadline.
 func (b *Backend) LaunchCommand(name string) *exec.Cmd {

@@ -69,6 +69,8 @@ type Backend interface {
     ClientName() string
     // LaunchCommand builds, but does not start, the interactive client.
     LaunchCommand(name string) *exec.Cmd
+    // Consequence is the confirmation's explanation of stopping or deleting.
+    Consequence(delete, running bool) string
 }
 ```
 
@@ -95,6 +97,7 @@ Only these, all through the interface:
 
 - `model.go`: `herdr.ValidateNewName(...)` becomes `m.backend.ValidateNewName(...)`. "Could not start Herdr: " becomes `"Could not start " + m.backend.ClientName() + ": "`.
 - `view.go`: both uses of the hard-coded hint string use `m.backend.NameHint()`. The form height calculation already wraps it, so a longer hint stays correct.
+- `view.go`: the confirmation's explanation comes from `m.backend.Consequence(delete, running)`.
 - `commands.go`: for `create` and `open`, after the fresh list and the existing checks pass, call `backend.CheckLaunch(ctx, name)`. A non-nil error goes into `r.err` with no launch request, so it shows as the form error (create) or a persistent red picker notice (open), exactly like a validation or missing-session error today.
 - `ui.Warning` keeps a nil backend; warning views never call the interface.
 - Type references change from `herdr.Session` to `session.Session`.
@@ -106,7 +109,7 @@ The ram, title, palette, footer, keys and layout do not change.
 Unchanged behavior and command vectors. Changes are structural only:
 
 - `NewClient(path string)` takes the resolved executable path from the startup layer instead of calling `exec.LookPath("herdr")` itself.
-- It implements the new methods: `ValidateNewName` is today's function; `NameHint` returns `"1-64 characters, no spaces: A-Z a-z 0-9 . _ -"`; `CheckLaunch` returns nil; `ClientName` returns `"Herdr"` (today's message text); `LaunchCommand` is today's.
+- It implements the new methods: `ValidateNewName` is today's function; `NameHint` returns `"1-64 characters, no spaces: A-Z a-z 0-9 . _ -"`; `CheckLaunch` returns nil; `ClientName` returns `"Herdr"` (today's message text); `LaunchCommand` is today's; `Consequence` returns today's v1 texts.
 
 ## v2 adapter (`internal/hc`)
 

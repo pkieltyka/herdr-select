@@ -151,6 +151,18 @@ func TestClientInterface(t *testing.T) {
 	if err := c.CheckLaunch(context.Background(), "work"); err != nil {
 		t.Fatal(err)
 	}
+	for _, tc := range []struct {
+		delete, running bool
+		want            string
+	}{
+		{false, true, "Running work will be interrupted. Saved session state will remain."},
+		{true, false, "The saved session will be removed."},
+		{true, true, "Running work will be interrupted. The saved session will be removed."},
+	} {
+		if got := c.Consequence(tc.delete, tc.running); got != tc.want {
+			t.Errorf("Consequence(%v, %v) = %q, want %q", tc.delete, tc.running, got, tc.want)
+		}
+	}
 	existing := []session.Session{{Name: "work"}}
 	for _, name := range []string{"ok", "a b", "work", "default", ""} {
 		if got, want := c.ValidateNewName(name, existing), ValidateNewName(name, existing); fmt.Sprint(got) != fmt.Sprint(want) {
