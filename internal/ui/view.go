@@ -8,7 +8,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
-	"github.com/pkieltyka/herdr-select/internal/herdr"
+	"github.com/pkieltyka/herdr-select/internal/session"
 )
 
 //go:embed ram.txt
@@ -343,7 +343,7 @@ func (m *Model) noticeStyle() lipgloss.Style {
 	}
 	return warningStyle
 }
-func (m *Model) metadata(s herdr.Session) (string, string) {
+func (m *Model) metadata(s session.Session) (string, string) {
 	status := "Stopped"
 	if s.Running {
 		status = "Running"
@@ -353,14 +353,24 @@ func (m *Model) metadata(s herdr.Session) (string, string) {
 	}
 	age := "—"
 	if s.HasModifiedAt {
-		age = herdr.RelativeAge(s.ModifiedAt, m.now)
+		age = session.RelativeAge(s.ModifiedAt, m.now)
 	}
 	return status, age
 }
 func (m *Model) formHeight(width int) int {
 	// One diagnostic row is essential; longer messages scroll within the space
 	// available at this terminal size and cannot make the input uneditable.
-	return 8 + len(wrap("1-64 characters, no spaces: A-Z a-z 0-9 . _ -", width))
+	// Always budget a hint row, so the warning view (no backend, no hint) keeps
+	// the same spacing as the form.
+	return 8 + max(1, len(wrap(m.nameHint(), width)))
+}
+
+// nameHint is empty for warning views, which have no backend.
+func (m *Model) nameHint() string {
+	if m.backend == nil {
+		return ""
+	}
+	return m.backend.NameHint()
 }
 func (m *Model) formBody(l layout) []string {
 	border := muted
@@ -371,7 +381,7 @@ func (m *Model) formBody(l layout) []string {
 	divider := textStyle.Foreground(lipgloss.Color("#444444")).Render(strings.Repeat("─", l.bodyWidth))
 	lines := []string{textStyle.Bold(true).Render("New Session"), divider, textStyle.Render("Session name")}
 	lines = append(lines, strings.Split(field, "\n")...)
-	for _, line := range wrap("1-64 characters, no spaces: A-Z a-z 0-9 . _ -", l.bodyWidth) {
+	for _, line := range wrap(m.nameHint(), l.bodyWidth) {
 		lines = append(lines, mutedStyle.Render(line))
 	}
 	diagnostic := m.validationMessage()

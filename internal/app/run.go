@@ -3,12 +3,14 @@ package app
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"strings"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/term"
 	"github.com/pkieltyka/herdr-select/internal/herdr"
+	"github.com/pkieltyka/herdr-select/internal/session"
 	"github.com/pkieltyka/herdr-select/internal/ui"
 )
 
@@ -25,7 +27,7 @@ func Run() int {
 		locale = os.Getenv("LANG")
 	}
 	compact := !strings.Contains(strings.ToLower(locale), "utf-8") && !strings.Contains(strings.ToLower(locale), "utf8")
-	client, err := herdr.NewClient()
+	backend, err := newHerdrBackend()
 	var model *ui.Model
 	switch {
 	case err != nil:
@@ -33,7 +35,7 @@ func Run() int {
 	case os.Getenv("HERDR_PANE_ID") != "":
 		model = ui.Warning("Detach from your current Herdr session before opening another session. Nested Herdr clients are not supported.", time.Now(), compact)
 	default:
-		model = ui.New(client, time.Now(), compact)
+		model = ui.New(backend, time.Now(), compact)
 	}
 	for {
 		final, err := tea.NewProgram(model).Run()
@@ -45,7 +47,7 @@ func Run() int {
 		if model.Launch == nil {
 			return model.ExitCode
 		}
-		cmd := client.LaunchCommand(model.Launch.Name)
+		cmd := backend.LaunchCommand(model.Launch.Name)
 		cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
 		started, code, err := runChild(cmd, 5*time.Second)
 		if started {
@@ -53,4 +55,16 @@ func Run() int {
 		}
 		model.LaunchFailed(err)
 	}
+}
+
+func newHerdrBackend() (session.Backend, error) {
+	path, err := exec.LookPath("herdr")
+	if err != nil {
+		return nil, err
+	}
+	client, err := herdr.NewClient(path)
+	if err != nil {
+		return nil, err
+	}
+	return client, nil
 }

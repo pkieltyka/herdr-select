@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"image/color"
+	"os/exec"
 	"slices"
 	"strings"
 	"testing"
@@ -14,20 +15,52 @@ import (
 	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/pkieltyka/herdr-select/internal/herdr"
+	"github.com/pkieltyka/herdr-select/internal/session"
 )
 
 type listReply struct {
-	sessions []herdr.Session
+	sessions []session.Session
 	err      error
 }
 type fakeBackend struct {
-	sessions           []herdr.Session
+	sessions           []session.Session
 	replies            []listReply
 	calls              []string
 	stopErr, deleteErr error
+	// Protocol-specific points default to herdr v1's rules, hint and name.
+	validate       func(string, []session.Session) error
+	hint, client   string
+	checkLaunchErr error
+	checked        []string
 }
 
-func (b *fakeBackend) List(context.Context) ([]herdr.Session, error) {
+var _ session.Backend = (*fakeBackend)(nil)
+
+func (b *fakeBackend) ValidateNewName(name string, existing []session.Session) error {
+	if b.validate != nil {
+		return b.validate(name, existing)
+	}
+	return herdr.ValidateNewName(name, existing)
+}
+func (b *fakeBackend) NameHint() string {
+	if b.hint != "" {
+		return b.hint
+	}
+	return herdr.NameHint
+}
+func (b *fakeBackend) CheckLaunch(_ context.Context, name string) error {
+	b.checked = append(b.checked, name)
+	return b.checkLaunchErr
+}
+func (b *fakeBackend) ClientName() string {
+	if b.client != "" {
+		return b.client
+	}
+	return "Herdr"
+}
+func (b *fakeBackend) LaunchCommand(string) *exec.Cmd { return nil }
+
+func (b *fakeBackend) List(context.Context) ([]session.Session, error) {
 	b.calls = append(b.calls, "list")
 	if len(b.replies) > 0 {
 		r := b.replies[0]
@@ -50,14 +83,14 @@ func (b *fakeBackend) Stop(_ context.Context, name string) error {
 func (b *fakeBackend) Delete(_ context.Context, name string) error {
 	b.calls = append(b.calls, "delete:"+name)
 	if b.deleteErr == nil {
-		b.sessions = slices.DeleteFunc(b.sessions, func(s herdr.Session) bool { return s.Name == name })
+		b.sessions = slices.DeleteFunc(b.sessions, func(s session.Session) bool { return s.Name == name })
 	}
 	return b.deleteErr
 }
-func session(name string, running bool) herdr.Session {
-	return herdr.Session{Name: name, Running: running, Default: name == "default", ModifiedAt: time.Unix(100, 0), HasModifiedAt: true}
+func fakeSession(name string, running bool) session.Session {
+	return session.Session{Name: name, Running: running, Default: name == "default", ModifiedAt: time.Unix(100, 0), HasModifiedAt: true}
 }
-func ready(sessions ...herdr.Session) (*Model, *fakeBackend) {
+func ready(sessions ...session.Session) (*Model, *fakeBackend) {
 	b := &fakeBackend{sessions: sessions}
 	m := New(b, time.Unix(110, 0), false)
 	m.Update(tea.WindowSizeMsg{Width: 100, Height: 40})
@@ -110,7 +143,7 @@ func run(m *Model, cmd tea.Cmd) {
 func plain(m *Model) string { return ansi.Strip(m.View().Content) }
 
 func TestAgeSnapshotChangesOnlyWithSuccessfulReload(t *testing.T) {
-	m, b := ready(session("work", true))
+	m, b := ready(fakeSession("work", true))
 	assertAge := func(want string) {
 		t.Helper()
 		if _, age := m.metadata(m.sessions[0]); age != want {
@@ -156,7 +189,7 @@ func TestAgeSnapshotChangesOnlyWithSuccessfulReload(t *testing.T) {
 }
 
 func TestInitialLoadCapturesSnapshotWithoutTimer(t *testing.T) {
-	b := &fakeBackend{sessions: []herdr.Session{session("work", true)}}
+	b := &fakeBackend{sessions: []session.Session{fakeSession("work", true)}}
 	m := New(b, time.Unix(110, 0), true)
 	before := time.Now()
 	msg := m.Init()()
@@ -214,11 +247,11 @@ func TestFormDividerAndCompactButtonSpacing(t *testing.T) {
 }
 
 func TestPickerSelectionAndRefresh(t *testing.T) {
-	m, b := ready(session("fresh", true), session("default", false), session("old", false))
+	m, b := ready(fakeSession("fresh", true), fakeSession("default", false), fakeSession("old", false))
 	if m.selected != 2 {
 		t.Fatalf("default index = %d", m.selected)
 	}
-	b.sessions = []herdr.Session{session("old", false), session("fresh", true), session("default", false)}
+	b.sessions = []session.Session{fakeSession("old", false), fakeSession("fresh", true), fakeSession("default", false)}
 	run(m, press(m, "r"))
 	if m.selected != 3 {
 		t.Fatal("refresh lost identity")
@@ -238,9 +271,9 @@ func TestPickerSelectionAndRefresh(t *testing.T) {
 	}
 }
 func TestFootersAndUnavailableActions(t *testing.T) {
-	unavailable := session("broken", false)
+	unavailable := fakeSession("broken", false)
 	unavailable.ConnectionError = "permission denied"
-	m, b := ready(session("running", true), session("stopped", false), session("default", true), unavailable)
+	m, b := ready(fakeSession("running", true), fakeSession("stopped", false), fakeSession("default", true), unavailable)
 	tests := []struct {
 		index  int
 		want   string
@@ -273,7 +306,7 @@ func TestFootersAndUnavailableActions(t *testing.T) {
 	}
 }
 func TestFormFocusValidationAndPaste(t *testing.T) {
-	m, _ := ready(session("taken", false))
+	m, _ := ready(fakeSession("taken", false))
 	press(m, "enter")
 	if m.view != newSession || !m.input.Focused() || strings.Contains(plain(m), "Refresh [r]") {
 		t.Fatal("form initial state")
@@ -333,7 +366,7 @@ func TestCreateFreshCheckFailureAndRecovery(t *testing.T) {
 	m, b := ready()
 	press(m, "enter")
 	m.input.SetValue("new")
-	b.sessions = []herdr.Session{session("new", false)}
+	b.sessions = []session.Session{fakeSession("new", false)}
 	cmd := press(m, "enter")
 	if press(m, "enter") != nil {
 		t.Fatal("duplicate submission")
@@ -362,7 +395,7 @@ func TestCreateFreshCheckFailureAndRecovery(t *testing.T) {
 	}
 }
 func TestStaleResultAndBusyInput(t *testing.T) {
-	m, b := ready(session("one", true))
+	m, b := ready(fakeSession("one", true))
 	m.selected = 1
 	cmd := press(m, "r")
 	original := m.operationID
@@ -386,7 +419,7 @@ func TestStaleResultAndBusyInput(t *testing.T) {
 	}
 }
 func TestOpenMissingAndDiscoveryError(t *testing.T) {
-	m, b := ready(session("gone", false))
+	m, b := ready(fakeSession("gone", false))
 	m.selected = 1
 	b.sessions = nil
 	run(m, press(m, "enter"))
@@ -406,7 +439,7 @@ func TestOpenMissingAndDiscoveryError(t *testing.T) {
 	}
 }
 func TestConfirmationCancellationAndIdentity(t *testing.T) {
-	m, b := ready(session("a", true), session("b", false))
+	m, b := ready(fakeSession("a", true), fakeSession("b", false))
 	m.selected = 1
 	run(m, press(m, "D"))
 	if m.view != confirm || m.confirmAccept {
@@ -418,7 +451,7 @@ func TestConfirmationCancellationAndIdentity(t *testing.T) {
 	}
 	run(m, press(m, "D"))
 	press(m, "right")
-	b.sessions = []herdr.Session{session("b", false), session("a", true)}
+	b.sessions = []session.Session{fakeSession("b", false), fakeSession("a", true)}
 	run(m, press(m, "enter"))
 	if !slices.Contains(b.calls, "delete:a") || slices.Contains(b.calls, "delete:b") {
 		t.Fatal(b.calls)
@@ -431,7 +464,7 @@ func TestLifecycleSequencing(t *testing.T) {
 	fail := errors.New("failed")
 	tests := []struct {
 		name                     string
-		initial                  herdr.Session
+		initial                  session.Session
 		confirmed                target
 		replies                  []listReply
 		stopErr, deleteErr       error
@@ -439,19 +472,19 @@ func TestLifecycleSequencing(t *testing.T) {
 		wantPartial, wantConfirm bool
 		notice                   string
 	}{
-		{name: "running delete", initial: session("x", true), confirmed: target{Name: "x", Delete: true, Running: true}, wantCalls: []string{"list", "stop:x", "list", "delete:x", "list"}},
-		{name: "stop fails", initial: session("x", true), confirmed: target{Name: "x", Delete: true, Running: true}, stopErr: fail, wantCalls: []string{"list", "stop:x", "list"}},
-		{name: "delete fails after stop", initial: session("x", true), confirmed: target{Name: "x", Delete: true, Running: true}, deleteErr: fail, wantPartial: true, wantCalls: []string{"list", "stop:x", "list", "delete:x", "list"}},
-		{name: "stopped delete", initial: session("x", false), confirmed: target{Name: "x", Delete: true}, wantCalls: []string{"list", "delete:x", "list"}},
-		{name: "now running", initial: session("x", true), confirmed: target{Name: "x", Delete: true}, wantConfirm: true, wantCalls: []string{"list"}},
-		{name: "default", initial: session("default", true), confirmed: target{Name: "default", Delete: true, Running: true}, wantCalls: []string{"list"}},
-		{name: "already stopped", initial: session("x", false), confirmed: target{Name: "x", Running: true}, wantCalls: []string{"list", "list"}, notice: "already stopped"},
-		{name: "restarted", initial: session("x", true), confirmed: target{Name: "x", Delete: true, Running: true}, replies: []listReply{{sessions: []herdr.Session{session("x", true)}}, {sessions: []herdr.Session{session("x", true)}}}, wantPartial: true, wantCalls: []string{"list", "stop:x", "list", "list"}},
-		{name: "post-stop list fails", initial: session("x", true), confirmed: target{Name: "x", Delete: true, Running: true}, replies: []listReply{{sessions: []herdr.Session{session("x", true)}}, {err: fail}}, wantPartial: true, wantCalls: []string{"list", "stop:x", "list", "list"}},
+		{name: "running delete", initial: fakeSession("x", true), confirmed: target{Name: "x", Delete: true, Running: true}, wantCalls: []string{"list", "stop:x", "list", "delete:x", "list"}},
+		{name: "stop fails", initial: fakeSession("x", true), confirmed: target{Name: "x", Delete: true, Running: true}, stopErr: fail, wantCalls: []string{"list", "stop:x", "list"}},
+		{name: "delete fails after stop", initial: fakeSession("x", true), confirmed: target{Name: "x", Delete: true, Running: true}, deleteErr: fail, wantPartial: true, wantCalls: []string{"list", "stop:x", "list", "delete:x", "list"}},
+		{name: "stopped delete", initial: fakeSession("x", false), confirmed: target{Name: "x", Delete: true}, wantCalls: []string{"list", "delete:x", "list"}},
+		{name: "now running", initial: fakeSession("x", true), confirmed: target{Name: "x", Delete: true}, wantConfirm: true, wantCalls: []string{"list"}},
+		{name: "default", initial: fakeSession("default", true), confirmed: target{Name: "default", Delete: true, Running: true}, wantCalls: []string{"list"}},
+		{name: "already stopped", initial: fakeSession("x", false), confirmed: target{Name: "x", Running: true}, wantCalls: []string{"list", "list"}, notice: "already stopped"},
+		{name: "restarted", initial: fakeSession("x", true), confirmed: target{Name: "x", Delete: true, Running: true}, replies: []listReply{{sessions: []session.Session{fakeSession("x", true)}}, {sessions: []session.Session{fakeSession("x", true)}}}, wantPartial: true, wantCalls: []string{"list", "stop:x", "list", "list"}},
+		{name: "post-stop list fails", initial: fakeSession("x", true), confirmed: target{Name: "x", Delete: true, Running: true}, replies: []listReply{{sessions: []session.Session{fakeSession("x", true)}}, {err: fail}}, wantPartial: true, wantCalls: []string{"list", "stop:x", "list", "list"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			b := &fakeBackend{sessions: []herdr.Session{tt.initial}, replies: tt.replies, stopErr: tt.stopErr, deleteErr: tt.deleteErr}
+			b := &fakeBackend{sessions: []session.Session{tt.initial}, replies: tt.replies, stopErr: tt.stopErr, deleteErr: tt.deleteErr}
 			r := operation(b, 1, mutate, tt.confirmed.Name, tt.confirmed)().(result)
 			if !slices.Equal(b.calls, tt.wantCalls) {
 				t.Errorf("calls %v want %v", b.calls, tt.wantCalls)
@@ -466,11 +499,11 @@ func TestLifecycleSequencing(t *testing.T) {
 	}
 }
 func TestResizeScrollAndRenderBounds(t *testing.T) {
-	var sessions []herdr.Session
+	var sessions []session.Session
 	for i := range 50 {
-		sessions = append(sessions, session(fmt.Sprintf("%02d-%s", i, strings.Repeat("x", 60)), i%2 == 0))
+		sessions = append(sessions, fakeSession(fmt.Sprintf("%02d-%s", i, strings.Repeat("x", 60)), i%2 == 0))
 	}
-	sessions[40] = session("default", true)
+	sessions[40] = fakeSession("default", true)
 	m, _ := ready(sessions...)
 	for _, size := range [][2]int{{120, 48}, {80, 24}, {44, 18}, {32, 12}, {10, 3}, {1, 1}} {
 		m.Update(tea.WindowSizeMsg{Width: size[0], Height: size[1]})
@@ -513,7 +546,7 @@ func assertBounds(t *testing.T, m *Model, width, height int) {
 	}
 }
 func TestFooterCenterAndHiddenForm(t *testing.T) {
-	m, _ := ready(session("work", true))
+	m, _ := ready(fakeSession("work", true))
 	m.selected = 1
 	for _, width := range []int{100, 90, 81, 80} {
 		m.Update(tea.WindowSizeMsg{Width: width, Height: 40})
@@ -534,7 +567,7 @@ func TestFooterCenterAndHiddenForm(t *testing.T) {
 	}
 }
 func TestFooterBackgroundSpansTerminal(t *testing.T) {
-	m, _ := ready(session("work", true))
+	m, _ := ready(fakeSession("work", true))
 	m.selected = 1
 	actions := []string{"Open [enter]", "Stop [shift+s]", "Delete [shift+d]", "Refresh [r]"}
 	strip := color.RGBA{R: 0x17, G: 0x17, B: 0x17, A: 0xff}
@@ -577,7 +610,7 @@ func abs(n int) int {
 	return n
 }
 func TestLongConfirmationAndEscapedDiagnostics(t *testing.T) {
-	m, _ := ready(session(strings.Repeat("x", 64), true))
+	m, _ := ready(fakeSession(strings.Repeat("x", 64), true))
 	m.selected = 1
 	run(m, press(m, "D"))
 	m.notice = strings.Repeat("Long diagnostic detail. ", 100)
@@ -636,10 +669,10 @@ func TestValidationKeepsMinimumSizeFormEditable(t *testing.T) {
 }
 
 func TestMinimumSizePickerPreservesDiagnosticsAndActions(t *testing.T) {
-	m, _ := ready(session("a", true), session("b", false))
+	m, _ := ready(fakeSession("a", true), fakeSession("b", false))
 	m.selected = 1
 	for i := range 30 {
-		m.sessions = append(m.sessions, session(fmt.Sprintf("session-%d", i), false))
+		m.sessions = append(m.sessions, fakeSession(fmt.Sprintf("session-%d", i), false))
 	}
 	m.notice = "Action failed: " + strings.Repeat("failure detail ", 20) + "END"
 	m.Update(tea.WindowSizeMsg{Width: 80, Height: 28})
@@ -699,7 +732,7 @@ func TestEveryDiagnosticLineReachable(t *testing.T) {
 		heights := []int{28, 29, 30, 31, 40}
 		for _, height := range heights {
 			t.Run(fmt.Sprintf("%d/%d-high", view, height), func(t *testing.T) {
-				m, _ := ready(session("a", true), session("b", false))
+				m, _ := ready(fakeSession("a", true), fakeSession("b", false))
 				width := 80
 				if view == newSession {
 					press(m, "enter")
@@ -749,7 +782,7 @@ func TestFixedMinimumAcrossViews(t *testing.T) {
 	for _, view := range []viewKind{loading, picker, newSession, confirm, startupError, discoveryError} {
 		for _, size := range [][2]int{{79, 28}, {80, 27}, {79, 27}, {80, 28}, {81, 28}, {80, 29}} {
 			t.Run(fmt.Sprintf("%d/%dx%d", view, size[0], size[1]), func(t *testing.T) {
-				m, _ := ready(session("work", true))
+				m, _ := ready(fakeSession("work", true))
 				m.view = view
 				m.notice = "underlying diagnostic"
 				m.Update(tea.WindowSizeMsg{Width: size[0], Height: size[1]})
@@ -811,7 +844,7 @@ func TestResizeMessageCenteringAndTinyBounds(t *testing.T) {
 func TestUndersizedInputGuardAndRecovery(t *testing.T) {
 	for _, view := range []viewKind{picker, newSession, confirm, discoveryError, startupError} {
 		t.Run(fmt.Sprint(view), func(t *testing.T) {
-			m, b := ready(session("work", true))
+			m, b := ready(fakeSession("work", true))
 			press(m, "enter")
 			m.input.SetValue("saved-name")
 			m.input.CursorStart()
@@ -859,7 +892,7 @@ func TestUndersizedInputGuardAndRecovery(t *testing.T) {
 func TestUndersizedPendingMutationResults(t *testing.T) {
 	for _, needsConfirmation := range []bool{false, true} {
 		t.Run(fmt.Sprint(needsConfirmation), func(t *testing.T) {
-			m, b := ready(session("work", !needsConfirmation))
+			m, b := ready(fakeSession("work", !needsConfirmation))
 			m.selected = 1
 			run(m, press(m, "D"))
 			press(m, "right")
@@ -899,7 +932,7 @@ func TestUndersizedPendingMutationResults(t *testing.T) {
 }
 
 func TestNoticeExpiryIdentityAndAsyncGuards(t *testing.T) {
-	m, _ := ready(session("work", true))
+	m, _ := ready(fakeSession("work", true))
 	m.selected = 1
 	run(m, press(m, "S"))
 	press(m, "right")
@@ -940,7 +973,7 @@ func TestNoticeExpiryIdentityAndAsyncGuards(t *testing.T) {
 func TestErrorNoticesPersistAndUseRed(t *testing.T) {
 	for _, failure := range []string{"mutation", "partial", "refresh", "missing-start", "discovery"} {
 		t.Run(failure, func(t *testing.T) {
-			m, b := ready(session("work", true))
+			m, b := ready(fakeSession("work", true))
 			m.selected = 1
 			var cmd tea.Cmd
 			switch failure {
@@ -1083,7 +1116,7 @@ func TestShortTerminalKeepsFullLogoAndControls(t *testing.T) {
 	for _, height := range []int{28, 29, 30, 31, 36, 40} {
 		for _, state := range []string{"loading", "picker", "unavailable", "form", "validation", "submitting", "stop", "delete", "stop-delete", "startup", "discovery"} {
 			t.Run(fmt.Sprintf("%s/%d", state, height), func(t *testing.T) {
-				m, _ := ready(session("work", true))
+				m, _ := ready(fakeSession("work", true))
 				var want []string
 				switch state {
 				case "loading":
@@ -1174,7 +1207,7 @@ func TestShortTerminalKeepsFullLogoAndControls(t *testing.T) {
 func TestShortTerminalResizeKeepsSelectedSessionVisible(t *testing.T) {
 	m, _ := ready()
 	for i := range 40 {
-		m.sessions = append(m.sessions, session(fmt.Sprintf("work-%02d", i), false))
+		m.sessions = append(m.sessions, fakeSession(fmt.Sprintf("work-%02d", i), false))
 	}
 	m.setNotice("Completed operation", noticeWarning)
 	for range len(m.sessions) {
@@ -1275,5 +1308,117 @@ func TestFullWidthDiagnosticTailsAcrossViews(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+func TestFormShowsBackendHint(t *testing.T) {
+	m, b := ready()
+	b.hint = "No / \\ : * ? \" < > |, and no leading or trailing spaces"
+	press(m, "enter")
+	out := plain(m)
+	if !strings.Contains(out, "No / \\ : * ? \" < > |, and no leading") || strings.Contains(out, "1-64 characters") {
+		t.Fatal(out)
+	}
+	// At the minimum size the longer hint still leaves every form element visible.
+	m.Update(tea.WindowSizeMsg{Width: 80, Height: 28})
+	out = plain(m)
+	for _, want := range []string{"Session name", "leading", "OK", "Cancel"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("missing %q in\n%s", want, out)
+		}
+	}
+}
+
+func TestFormValidationComesFromBackend(t *testing.T) {
+	m, b := ready()
+	b.validate = func(name string, _ []session.Session) error {
+		if name == "v1-valid" {
+			return errors.New("Rejected by the backend.")
+		}
+		return nil
+	}
+	press(m, "enter")
+	m.input.SetValue("v1-valid")
+	if m.validForm() || m.validationMessage() != "Rejected by the backend." {
+		t.Fatalf("backend rule ignored: %q", m.validationMessage())
+	}
+	m.input.SetValue("has space")
+	if !m.validForm() || m.validationMessage() != "" {
+		t.Fatalf("v1 rule applied: %q", m.validationMessage())
+	}
+	run(m, press(m, "enter"))
+	if m.Launch == nil || m.Launch.Name != "has space" || !m.Launch.Create {
+		t.Fatal("fresh check did not use the backend's rules")
+	}
+}
+
+func TestCheckLaunchBlocksCreate(t *testing.T) {
+	m, b := ready()
+	b.checkLaunchErr = errors.New("herdr-app is already open. Close it, then open ‘new’ again.")
+	press(m, "enter")
+	m.input.SetValue("new")
+	run(m, press(m, "enter"))
+	if m.Launch != nil || m.view != newSession || m.formError != b.checkLaunchErr.Error() || !m.input.Focused() || m.input.Value() != "new" {
+		t.Fatalf("launch %v view %d error %q", m.Launch, m.view, m.formError)
+	}
+	if !slices.Equal(b.checked, []string{"new"}) {
+		t.Fatal(b.checked)
+	}
+	if !strings.Contains(plain(m), "herdr-app is already open") {
+		t.Fatal(plain(m))
+	}
+	// A name the fresh check rejects never reaches the preflight.
+	b.validate = func(string, []session.Session) error { return errors.New("bad") }
+	r := operation(b, 1, create, "new", target{})().(result)
+	if r.err == nil || r.err.Error() != "bad" || r.launch != nil || len(b.checked) != 1 {
+		t.Fatal(r.err, r.launch, b.checked)
+	}
+}
+
+func TestCheckLaunchBlocksOpen(t *testing.T) {
+	m, b := ready(fakeSession("work", true))
+	b.checkLaunchErr = errors.New("herdr-app is already open. Close it, then open ‘work’ again.")
+	m.selected = 1
+	run(m, press(m, "enter"))
+	if m.Launch != nil || m.view != picker || m.notice != b.checkLaunchErr.Error() || m.noticeSeverity != noticeError || m.stale {
+		t.Fatalf("launch %v view %d notice %q", m.Launch, m.view, m.notice)
+	}
+	if !slices.Equal(b.checked, []string{"work"}) {
+		t.Fatal(b.checked)
+	}
+	before := m.notice
+	m.Update(noticeExpired{id: m.noticeID})
+	if m.notice != before {
+		t.Fatal("preflight error was transient")
+	}
+	// A session that vanished is reported before the preflight runs.
+	b.sessions = nil
+	run(m, press(m, "enter"))
+	if len(b.checked) != 1 || !strings.Contains(m.notice, "no longer exists") {
+		t.Fatal(b.checked, m.notice)
+	}
+}
+
+func TestStartFailureNamesClient(t *testing.T) {
+	m, b := ready(fakeSession("work", true))
+	b.client = "rodeo"
+	m.selected = 1
+	m.LaunchFailed(errors.New("exec: no such file"))
+	if m.view != picker || m.notice != "Could not start rodeo: exec: no such file" {
+		t.Fatal(m.notice)
+	}
+	press(m, "home")
+	press(m, "enter")
+	m.LaunchFailed(errors.New("exec: no such file"))
+	if m.view != newSession || m.formError != "Could not start rodeo: exec: no such file" {
+		t.Fatal(m.formError)
+	}
+}
+
+func TestWarningLayoutWithoutBackend(t *testing.T) {
+	m := Warning("Install it.", time.Unix(0, 0), false)
+	m.Update(tea.WindowSizeMsg{Width: 100, Height: 40})
+	if m.formHeight(80) != 9 || !strings.Contains(plain(m), "Install it.") {
+		t.Fatalf("form height %d\n%s", m.formHeight(80), plain(m))
 	}
 }

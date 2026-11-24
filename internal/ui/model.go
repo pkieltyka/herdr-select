@@ -9,7 +9,7 @@ import (
 
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
-	"github.com/pkieltyka/herdr-select/internal/herdr"
+	"github.com/pkieltyka/herdr-select/internal/session"
 )
 
 type viewKind int
@@ -39,9 +39,9 @@ type LaunchRequest struct {
 	Create bool
 }
 type Model struct {
-	backend                         herdr.Backend
+	backend                         session.Backend
 	view                            viewKind
-	sessions                        []herdr.Session
+	sessions                        []session.Session
 	selected, scroll, width, height int
 	input                           textinput.Model
 	focus                           int // input, OK, Cancel
@@ -63,7 +63,7 @@ type Model struct {
 	ExitCode                        int
 }
 
-func New(backend herdr.Backend, now time.Time, compact bool) *Model {
+func New(backend session.Backend, now time.Time, compact bool) *Model {
 	input := textinput.New()
 	input.Prompt = ""
 	input.Placeholder = "e.g. my-project"
@@ -117,13 +117,13 @@ func (m *Model) begin(kind action, name string, confirmed target) tea.Cmd {
 	}
 	return operation(m.backend, m.operationID, kind, name, confirmed)
 }
-func (m *Model) current() (herdr.Session, bool) {
+func (m *Model) current() (session.Session, bool) {
 	if m.selected < 1 || m.selected > len(m.sessions) {
-		return herdr.Session{}, false
+		return session.Session{}, false
 	}
 	return m.sessions[m.selected-1], true
 }
-func (m *Model) replaceSessions(sessions []herdr.Session) {
+func (m *Model) replaceSessions(sessions []session.Session) {
 	old, had := m.current()
 	m.sessions = sessions
 	if !m.loaded {
@@ -150,13 +150,14 @@ func (m *Model) replaceSessions(sessions []herdr.Session) {
 func (m *Model) LaunchFailed(err error) {
 	m.Launch = nil
 	m.busy = ""
+	message := "Could not start " + m.backend.ClientName() + ": " + err.Error()
 	if m.view == newSession {
-		m.formError = "Could not start Herdr: " + err.Error()
+		m.formError = message
 		m.focus = 0
 		m.input.Focus()
 	} else {
 		m.view = picker
-		m.setNotice("Could not start Herdr: "+err.Error(), noticeError)
+		m.setNotice(message, noticeError)
 	}
 }
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -405,7 +406,9 @@ func (m *Model) setNotice(message string, severity noticeSeverity) tea.Cmd {
 	return tea.Tick(noticeDuration, func(time.Time) tea.Msg { return noticeExpired{id: id} })
 }
 
-func (m *Model) validForm() bool { return herdr.ValidateNewName(m.input.Value(), m.sessions) == nil }
+func (m *Model) validForm() bool {
+	return m.backend.ValidateNewName(m.input.Value(), m.sessions) == nil
+}
 func (m *Model) validationMessage() string {
 	if m.formError != "" {
 		return m.formError
@@ -413,7 +416,7 @@ func (m *Model) validationMessage() string {
 	if m.input.Value() == "" && !m.attempted {
 		return ""
 	}
-	if err := herdr.ValidateNewName(m.input.Value(), m.sessions); err != nil {
+	if err := m.backend.ValidateNewName(m.input.Value(), m.sessions); err != nil {
 		return err.Error()
 	}
 	return ""

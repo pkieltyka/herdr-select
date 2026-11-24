@@ -6,7 +6,7 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/pkieltyka/herdr-select/internal/herdr"
+	"github.com/pkieltyka/herdr-select/internal/session"
 )
 
 type action int
@@ -27,7 +27,7 @@ type target struct {
 type result struct {
 	id                   uint64
 	kind                 action
-	sessions             []herdr.Session
+	sessions             []session.Session
 	listed               bool
 	listedAt             time.Time
 	err                  error
@@ -38,16 +38,16 @@ type result struct {
 	stoppedButNotDeleted bool
 }
 
-func find(sessions []herdr.Session, name string) (herdr.Session, bool) {
+func find(sessions []session.Session, name string) (session.Session, bool) {
 	for _, s := range sessions {
 		if s.Name == name {
 			return s, true
 		}
 	}
-	return herdr.Session{}, false
+	return session.Session{}, false
 }
 
-func operation(backend herdr.Backend, id uint64, kind action, name string, confirmed target) tea.Cmd {
+func operation(backend session.Backend, id uint64, kind action, name string, confirmed target) tea.Cmd {
 	return func() tea.Msg {
 		ctx := context.Background()
 		r := result{id: id, kind: kind}
@@ -65,8 +65,10 @@ func operation(backend herdr.Backend, id uint64, kind action, name string, confi
 			return r
 		}
 		if kind == create {
-			if r.err = herdr.ValidateNewName(name, sessions); r.err == nil {
-				r.launch = &LaunchRequest{Name: name, Create: true}
+			if r.err = backend.ValidateNewName(name, sessions); r.err == nil {
+				if r.err = backend.CheckLaunch(ctx, name); r.err == nil {
+					r.launch = &LaunchRequest{Name: name, Create: true}
+				}
 			}
 			return r
 		}
@@ -76,7 +78,9 @@ func operation(backend herdr.Backend, id uint64, kind action, name string, confi
 			return r
 		}
 		if kind == open {
-			r.launch = &LaunchRequest{Name: name}
+			if r.err = backend.CheckLaunch(ctx, name); r.err == nil {
+				r.launch = &LaunchRequest{Name: name}
+			}
 			return r
 		}
 		deleting := kind == prepareDelete || kind == mutate && confirmed.Delete
@@ -108,7 +112,7 @@ func operation(backend herdr.Backend, id uint64, kind action, name string, confi
 		}
 		if deleting && r.err == nil {
 			if stopped {
-				var after []herdr.Session
+				var after []session.Session
 				after, r.err = backend.List(ctx)
 				if r.err == nil {
 					current, ok := find(after, name)
