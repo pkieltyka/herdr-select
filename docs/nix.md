@@ -2,7 +2,7 @@
 
 Herdr Select provides a working package and app for `x86_64-linux` and `aarch64-linux`, plus a development shell, formatter, and package check. The package and shell use the same `pkgs.go` from the committed Nixpkgs pin. Package builds run tests, use the committed vendor hash, and set `GOTOOLCHAIN=local`; they do not download a compiler or override Go's source.
 
-Install [Herdr](https://github.com/herdrdev/herdr) separately. The selector finds `herdr` on PATH and inherits its environment and configuration. Run it in an interactive terminal, outside any existing Herdr pane.
+Install [Herdr](https://github.com/herdrdev/herdr) or herdr-core separately. The selector finds `herdr`, or `hc` and a herdr-core client such as `herdr-app`, on PATH and inherits their environment and configuration; see [Choosing herdr or herdr-core](../README.md#choosing-herdr-or-herdr-core). Run it in an interactive terminal, outside any existing herdr pane or hc terminal.
 
 ## Run or install
 
@@ -73,7 +73,7 @@ The shortcut launches:
 uwsm-app -- ghostty --gtk-single-instance=false -e herdr-select
 ```
 
-This preserves UWSM, Ghostty's separate-window behavior, and Herdr's Super-key bindings. The selector hands the same terminal to Herdr and exits after the client detaches or quits.
+This preserves UWSM, Ghostty's separate-window behavior, and Herdr's Super-key bindings. To open herdr-core sessions instead, append a client such as `--app=rodeo` to the command. The selector hands the same terminal to the client and exits after the client detaches or quits.
 
 The patch targets the current configuration baseline, including the existing Herdr shortcut. It is kept here so the unpublished input does not break the live configuration. Publication, applying the patch, final GitHub locking, and activation have not been performed.
 

@@ -6,12 +6,13 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/pkieltyka/herdr-select/internal/session"
 )
 
 type fixture struct {
@@ -31,10 +32,6 @@ func TestMain(m *testing.M) {
 }
 
 func helper(path string) int {
-	if os.Getenv("HERDR_SELECT_TEST_HOLD") == "1" {
-		time.Sleep(300 * time.Millisecond)
-		return 0
-	}
 	var f fixture
 	data, err := os.ReadFile(path)
 	if err != nil || json.Unmarshal(data, &f) != nil {
@@ -47,20 +44,8 @@ func helper(path string) int {
 			return 91
 		}
 	}
-	switch f.Mode {
-	case "timeout":
+	if f.Mode == "timeout" {
 		time.Sleep(10 * time.Second)
-	case "stdout_overflow":
-		fmt.Fprint(os.Stdout, strings.Repeat("x", stdoutLimit+1))
-	case "stderr_overflow":
-		fmt.Fprint(os.Stderr, strings.Repeat("x", stderrLimit+1))
-	case "inherited_pipe":
-		child := exec.Command(os.Args[0])
-		child.Env = append(os.Environ(), "HERDR_SELECT_TEST_HOLD=1")
-		child.Stdout, child.Stderr = os.Stdout, os.Stderr
-		if child.Start() != nil {
-			return 92
-		}
 	}
 	fmt.Fprint(os.Stdout, f.Stdout)
 	fmt.Fprint(os.Stderr, f.Stderr)
@@ -87,7 +72,9 @@ func fixtureClient(t *testing.T, f fixture) (*Client, string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	c := &Client{executable: executable, dir: dir, env: append(os.Environ(), "HERDR_SELECT_TEST_FIXTURE="+path, "HERDR_SELECT_TEST_MARKER=preserved", "HERDR_SESSION=other", "GORACE=atexit_sleep_ms=0"), listTimeout: 2 * time.Second, stopTimeout: 2 * time.Second, deleteTimeout: 2 * time.Second, waitDelay: time.Second}
+	env := append(os.Environ(), "HERDR_SELECT_TEST_FIXTURE="+path, "HERDR_SELECT_TEST_MARKER=preserved", "HERDR_SESSION=other", "GORACE=atexit_sleep_ms=0")
+	c := &Client{runner: session.Runner{Executable: executable, Dir: dir, Env: env, WaitDelay: time.Second, Program: "Herdr"},
+		listTimeout: 2 * time.Second, stopTimeout: 2 * time.Second, deleteTimeout: 2 * time.Second}
 	return c, f.Capture
 }
 func readInvocation(t *testing.T, path string) invocation {
@@ -102,9 +89,9 @@ func readInvocation(t *testing.T, path string) invocation {
 	}
 	return got
 }
-func requireError(t *testing.T, err error, code string, uncertain bool) *CommandError {
+func requireError(t *testing.T, err error, code string, uncertain bool) *session.CommandError {
 	t.Helper()
-	var got *CommandError
+	var got *session.CommandError
 	if !errors.As(err, &got) {
 		t.Fatalf("expected CommandError, got %v", err)
 	}
@@ -133,10 +120,10 @@ func TestNewClient(t *testing.T) {
 	if err = os.Symlink(executable, filepath.Join(dir, "herdr")); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("PATH", dir)
 	t.Setenv("HERDR_SELECT_TEST_MARKER", "original")
 	t.Chdir(dir)
-	c, err := NewClient()
+	// A relative path from the startup layer is made absolute.
+	c, err := NewClient("herdr")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -148,12 +135,42 @@ func TestNewClient(t *testing.T) {
 	if !strings.Contains(strings.Join(cmd.Env, "\n"), "HERDR_SELECT_TEST_MARKER=original") {
 		t.Fatal("environment was not captured")
 	}
-	if c.listTimeout != 5*time.Second || c.stopTimeout != 20*time.Second || c.deleteTimeout != 10*time.Second || c.waitDelay != time.Second {
+	if c.listTimeout != 5*time.Second || c.stopTimeout != 20*time.Second || c.deleteTimeout != 10*time.Second || c.runner.WaitDelay != time.Second {
 		t.Fatal("incorrect production deadlines")
 	}
-	t.Setenv("PATH", t.TempDir())
-	if _, err := NewClient(); !errors.Is(err, exec.ErrNotFound) {
-		t.Fatalf("missing executable: %v", err)
+	if c.runner.Program != "Herdr" {
+		t.Fatalf("program = %q", c.runner.Program)
+	}
+}
+
+func TestClientInterface(t *testing.T) {
+	c, capture := fixtureClient(t, fixture{})
+	if c.NameHint() != "1-64 characters, no spaces: A-Z a-z 0-9 . _ -" || c.ClientName() != "Herdr" {
+		t.Fatalf("hint %q, client %q", c.NameHint(), c.ClientName())
+	}
+	if err := c.CheckLaunch(context.Background(), "work"); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		delete, running bool
+		want            string
+	}{
+		{false, true, "Running work will be interrupted. Saved session state will remain."},
+		{true, false, "The saved session will be removed."},
+		{true, true, "Running work will be interrupted. The saved session will be removed."},
+	} {
+		if got := c.Consequence(tc.delete, tc.running); got != tc.want {
+			t.Errorf("Consequence(%v, %v) = %q, want %q", tc.delete, tc.running, got, tc.want)
+		}
+	}
+	existing := []session.Session{{Name: "work"}}
+	for _, name := range []string{"ok", "a b", "work", "default", ""} {
+		if got, want := c.ValidateNewName(name, existing), ValidateNewName(name, existing); fmt.Sprint(got) != fmt.Sprint(want) {
+			t.Errorf("%q: method %v, rules %v", name, got, want)
+		}
+	}
+	if _, err := os.Stat(capture); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("interface methods ran the herdr CLI")
 	}
 }
 
@@ -192,7 +209,7 @@ func TestClientList(t *testing.T) {
 		t.Fatalf("unexpected sessions: %+v", sessions)
 	}
 	got := readInvocation(t, capture)
-	if !reflect.DeepEqual(got.Args, []string{"session", "list", "--json"}) || got.Dir != c.dir || got.Marker != "preserved" || got.SessionEnv != "other" {
+	if !reflect.DeepEqual(got.Args, []string{"session", "list", "--json"}) || got.Dir != c.runner.Dir || got.Marker != "preserved" || got.SessionEnv != "other" {
 		t.Fatalf("unexpected invocation %+v", got)
 	}
 }
@@ -282,7 +299,7 @@ func TestClientMutations(t *testing.T) {
 				if got := readInvocation(t, capture); !reflect.DeepEqual(got.Args, []string{"session", op, "--json", "--", name}) {
 					t.Fatalf("bad argv: %v", got.Args)
 				}
-				if got := c.LaunchCommand(name).Args; !reflect.DeepEqual(got, []string{c.executable, "--session=" + name}) {
+				if got := c.LaunchCommand(name).Args; !reflect.DeepEqual(got, []string{c.runner.Executable, "--session=" + name}) {
 					t.Fatalf("bad launch argv: %v", got)
 				}
 			})
@@ -346,56 +363,24 @@ func TestClientMutationFailures(t *testing.T) {
 	}
 }
 
-func TestClientBounds(t *testing.T) {
-	for _, mode := range []string{"stdout_overflow", "stderr_overflow", "timeout", "inherited_pipe"} {
-		t.Run(mode, func(t *testing.T) {
-			c, _ := fixtureClient(t, fixture{Mode: mode, Stdout: `{"stopped":true,"session":{"name":"a"}}`})
-			code := "output_limit"
-			switch mode {
-			case "timeout":
-				c.stopTimeout = 50 * time.Millisecond
-				code = "timeout"
-			case "inherited_pipe":
-				c.waitDelay = 20 * time.Millisecond
-				code = "process"
-			}
-			start := time.Now()
-			err := requireError(t, c.Stop(context.Background(), "a"), code, true)
-			if time.Since(start) > 3*time.Second {
-				t.Fatal("command was not bounded")
-			}
-			if mode == "timeout" && !errors.Is(err, context.DeadlineExceeded) {
-				t.Fatalf("lost deadline cause: %v", err)
-			}
-			if mode == "inherited_pipe" && !errors.Is(err, exec.ErrWaitDelay) {
-				t.Fatalf("lost WaitDelay cause: %v", err)
-			}
-		})
+// The runner's bounds are covered in internal/session; this checks the client
+// wires each deadline and keeps the runner's error classification.
+func TestClientDeadlines(t *testing.T) {
+	c, _ := fixtureClient(t, fixture{Mode: "timeout"})
+	c.stopTimeout = 50 * time.Millisecond
+	start := time.Now()
+	err := requireError(t, c.Stop(context.Background(), "a"), "timeout", true)
+	if time.Since(start) > 3*time.Second || !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("stop was not bounded: %v", err)
 	}
-	c, _ := fixtureClient(t, fixture{})
-	c.executable = filepath.Join(t.TempDir(), "missing")
-	requireError(t, c.Stop(context.Background(), "a"), "start", false)
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	c, _ = fixtureClient(t, fixture{})
-	err := requireError(t, c.Stop(ctx, "a"), "start", false)
-	if !errors.Is(err, context.Canceled) {
-		t.Fatalf("lost cancellation cause: %v", err)
-	}
+	c, _ = fixtureClient(t, fixture{Mode: "timeout"})
+	c.deleteTimeout = 50 * time.Millisecond
+	requireError(t, c.Delete(context.Background(), "a"), "timeout", true)
 	c, _ = fixtureClient(t, fixture{Mode: "timeout"})
 	c.listTimeout = 50 * time.Millisecond
 	_, listErr := c.List(context.Background())
 	requireError(t, listErr, "timeout", false)
-}
-
-func TestLimitedBuffer(t *testing.T) {
-	b := &limitedBuffer{limit: 3}
-	for _, part := range []string{"ab", "cd", "ef"} {
-		if n, err := b.Write([]byte(part)); n != len(part) || err != nil {
-			t.Fatalf("write got %d %v", n, err)
-		}
-	}
-	if b.String() != "abc" || !b.overflow {
-		t.Fatalf("buffer = %q overflow %v", b.String(), b.overflow)
-	}
+	c, _ = fixtureClient(t, fixture{})
+	c.runner.Executable = filepath.Join(t.TempDir(), "missing")
+	requireError(t, c.Stop(context.Background(), "a"), "start", false)
 }
